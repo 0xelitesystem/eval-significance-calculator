@@ -1,0 +1,2298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eval Significance Calculator - is that eval win real, or sampling noise?</title>
+<meta name="description" content="Paste two eval runs, or just the counts, and find out whether that 3-point score move is a real improvement or sampling noise. Paired McNemar exact test, effect size, A/A noise floor, power. Runs entirely in your browser.">
+<link rel="canonical" href="https://0xelitesystem.github.io/eval-significance-calculator/">
+<meta property="og:title" content="Eval Significance Calculator - is that eval win real, or sampling noise?">
+<meta property="og:description" content="Paste two eval runs, or just the counts, and find out whether that 3-point score move is a real improvement or sampling noise. Paired, exact, and it refuses to guess when the data cannot support a verdict.">
+<meta property="og:url" content="https://0xelitesystem.github.io/eval-significance-calculator/">
+<meta property="og:type" content="website">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Eval Significance Calculator",
+  "description": "Paired significance testing for LLM eval runs: exact McNemar test, effect size with confidence interval, A/A noise floor, multiple-comparison correction, and required sample size. Client-side only.",
+  "url": "https://0xelitesystem.github.io/eval-significance-calculator/",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any modern web browser",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Organization", "name": "0xelitesystem", "url": "https://elitesystem.ai" }
+}
+</script>
+<script>
+/* Restore the saved theme before first paint. Dark is the default. */
+(function () {
+  try {
+    var saved = window.localStorage.getItem("esc-theme");
+    document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark");
+  } catch (e) {
+    document.documentElement.setAttribute("data-theme", "dark");
+  }
+})();
+</script>
+<style>
+:root{
+  --bg:#0b0f14; --surface:#121821; --surface2:#18202b; --border:#26313f;
+  --text:#e7eef5; --muted:#93a3b3; --accent:#4dd0c4; --accent-ink:#04322e;
+  --warn:#f2b544; --warn-ink:#3a2a00; --bad:#ff8177; --good:#69cf83;
+  --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 28px rgba(0,0,0,.35);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+:root[data-theme="light"]{
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#eef2f7; --border:#d6dee8;
+  --text:#101922; --muted:#54636f; --accent:#0e7a70; --accent-ink:#e6fffb;
+  --warn:#9a6600; --warn-ink:#fff5e0; --bad:#b3261e; --good:#1c7a37;
+  --shadow:0 1px 2px rgba(16,25,34,.06), 0 8px 24px rgba(16,25,34,.08);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme]){
+    --bg:#f5f7fa; --surface:#ffffff; --surface2:#eef2f7; --border:#d6dee8;
+    --text:#101922; --muted:#54636f; --accent:#0e7a70; --accent-ink:#e6fffb;
+    --warn:#9a6600; --warn-ink:#fff5e0; --bad:#b3261e; --good:#1c7a37;
+  }
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:400 16px/1.55 var(--sans);
+  padding:0 0 64px;
+}
+a{color:var(--accent)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+header.top{
+  border-bottom:1px solid var(--border); background:var(--surface);
+  position:sticky; top:0; z-index:20;
+}
+.topbar{display:flex;align-items:center;gap:12px;padding:12px 0;flex-wrap:wrap}
+.logo{
+  font:700 15px/1 var(--mono); letter-spacing:-.02em;
+  background:var(--accent); color:var(--accent-ink);
+  padding:7px 9px; border-radius:6px; white-space:nowrap;
+}
+.topttl{font-weight:650;font-size:16px;line-height:1.3;margin:0}
+.topsub{color:var(--muted);font-size:13px;margin:0}
+.spacer{flex:1 1 auto}
+button{font:inherit;cursor:pointer}
+.btn{
+  background:var(--surface2); color:var(--text); border:1px solid var(--border);
+  padding:8px 12px; border-radius:8px; font-size:14px; line-height:1.2;
+}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:650}
+.btn.small{padding:6px 9px;font-size:13px}
+main{padding-top:22px}
+.lede{font-size:19px;line-height:1.45;margin:0 0 6px;max-width:70ch}
+.lede strong{color:var(--accent)}
+.sub{color:var(--muted);font-size:14px;margin:0 0 18px;max-width:78ch}
+.samplebar{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:12px; margin-bottom:18px;
+}
+.samplebar .hint{color:var(--muted);font-size:13px}
+.tag{
+  display:inline-block;font:650 10.5px/1 var(--mono);letter-spacing:.09em;
+  text-transform:uppercase;padding:4px 6px;border-radius:4px;
+  background:var(--warn); color:var(--warn-ink); vertical-align:middle;
+}
+.layout{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.panel > h2{
+  margin:0;padding:13px 15px;font-size:14px;font-weight:650;letter-spacing:.01em;
+  border-bottom:1px solid var(--border);
+}
+.pbody{padding:14px 15px}
+.tabs{display:flex;gap:6px;padding:12px 15px 0;flex-wrap:wrap}
+.tab{
+  background:transparent;border:1px solid var(--border);color:var(--muted);
+  padding:7px 10px;border-radius:8px;font-size:13px;
+}
+.tab[aria-selected="true"]{background:var(--surface2);color:var(--text);border-color:var(--accent);font-weight:650}
+fieldset{border:1px solid var(--border);border-radius:10px;margin:0 0 14px;padding:11px 12px 13px}
+legend{font-size:12.5px;font-weight:650;color:var(--muted);padding:0 5px;text-transform:uppercase;letter-spacing:.06em}
+label{display:block;font-size:13px;margin:0 0 4px;color:var(--text)}
+.hint2{color:var(--muted);font-size:12px;margin:3px 0 0;line-height:1.4}
+input[type="number"],input[type="text"],select,textarea{
+  width:100%;background:var(--bg);color:var(--text);
+  border:1px solid var(--border);border-radius:8px;padding:8px 9px;
+  font:14px/1.4 var(--mono);
+}
+textarea{font-size:12.5px;min-height:104px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+@media (max-width:420px){.grid3{grid-template-columns:1fr 1fr}}
+.row{margin-bottom:11px}
+.row:last-child{margin-bottom:0}
+.empty{padding:34px 18px;text-align:center;color:var(--muted)}
+.empty h3{color:var(--text);font-size:17px;margin:0 0 8px}
+.empty p{margin:0 auto 8px;max-width:52ch;font-size:14px}
+.verdict{border-radius:10px;padding:15px 16px;margin:0 0 16px;border:1px solid var(--border);background:var(--surface2)}
+.verdict.noise{border-left:5px solid var(--warn)}
+.verdict.signal{border-left:5px solid var(--good)}
+.verdict.floorv{border-left:5px solid var(--warn)}
+.verdict.refused{border-left:5px solid var(--accent);background:linear-gradient(0deg,var(--surface2),var(--surface2))}
+.verdict.identical{border-left:5px solid var(--muted)}
+.verdict.err{border-left:5px solid var(--bad)}
+.assume-inline{
+  margin:-6px 0 16px; padding:9px 12px; font-size:13.5px; line-height:1.5;
+  color:var(--muted); background:var(--surface2);
+  border:1px dashed var(--border); border-radius:8px;
+}
+.assume-inline strong{color:var(--text);font-weight:650}
+.verdict .kicker{font:650 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.verdict h3{margin:0 0 8px;font-size:19px;line-height:1.35}
+.verdict p{margin:0 0 8px;font-size:14.5px}
+.verdict p:last-child{margin-bottom:0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:11px;margin:0 0 16px}
+.stat{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+.stat.lead{border-color:var(--accent)}
+.stat .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 5px}
+.stat .v{font:650 22px/1.15 var(--mono);margin:0 0 4px;word-break:break-word}
+.stat .n{font-size:12px;color:var(--muted);margin:0;line-height:1.4}
+h4.sec,h2.sec{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:22px 0 9px;font-weight:650}
+h4.sec:first-child,h2.sec:first-child{margin-top:0}
+.box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;margin:0 0 14px;font-size:14px}
+.box p{margin:0 0 8px}.box p:last-child{margin-bottom:0}
+.box ul{margin:6px 0 0;padding-left:20px}
+.box li{margin:0 0 5px;font-size:13.5px}
+.box.flag{border-color:var(--warn)}
+.formula{
+  font:13px/1.6 var(--mono); background:var(--bg); border:1px solid var(--border);
+  border-radius:8px; padding:10px 11px; overflow-x:auto; white-space:pre; margin:8px 0;
+}
+table.t{width:100%;border-collapse:collapse;font-size:13.5px}
+table.t th,table.t td{border:1px solid var(--border);padding:7px 9px;text-align:left}
+table.t th{background:var(--surface2);font-weight:650;font-size:12.5px}
+table.t td.num,table.t th.num{text-align:right;font-family:var(--mono)}
+.scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 14px}
+figure{margin:0 0 14px}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}
+svg.plot{display:block;width:100%;height:auto;max-width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px}
+.bar-b{fill:var(--accent)}
+.bar-c{fill:var(--warn)}
+.bar-boot{fill:var(--accent);opacity:.55}
+.bar-boot-in{fill:var(--accent)}
+.axis{stroke:var(--border);stroke-width:1}
+.nullline{stroke:var(--bad);stroke-width:1.5;stroke-dasharray:5 4}
+.zeroline{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3}
+.obsline{stroke:var(--good);stroke-width:2}
+.plabel{fill:var(--text);font:600 12px var(--mono)}
+.pmuted{fill:var(--muted);font:11px var(--mono)}
+pre.md{
+  background:var(--bg);border:1px solid var(--border);border-radius:10px;
+  padding:12px;font:12.5px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word;
+  max-height:340px;overflow:auto;margin:0 0 10px;
+}
+.copywrap{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.copied{color:var(--good);font-size:13px;font-weight:650}
+.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:11px}
+.linkcard{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+.linkcard a{font-weight:650;font-size:14px;text-decoration:none}
+.linkcard a:hover{text-decoration:underline}
+.linkcard p{margin:5px 0 0;font-size:13px;color:var(--muted);line-height:1.45}
+.dated{
+  border:1px dashed var(--border); border-radius:12px; padding:14px 15px;
+  background:transparent; margin:26px 0 0;
+}
+.dated h2{margin:0 0 4px;font-size:15px}
+.dated .stamp{font:11.5px var(--mono);color:var(--muted);margin:0 0 10px}
+.dated blockquote{
+  margin:8px 0;padding:8px 12px;border-left:3px solid var(--border);
+  color:var(--text);font-size:13.5px;background:var(--surface2);border-radius:0 8px 8px 0;
+}
+.dated p{font-size:13.5px;margin:0 0 8px}
+.dated cite{display:block;font-size:12px;color:var(--muted);font-style:normal;margin-top:4px}
+details.help{margin:0 0 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)}
+details.help > summary{cursor:pointer;padding:10px 12px;font-size:13.5px;font-weight:650;list-style:revert}
+details.help .dbody{padding:0 12px 12px;font-size:13.5px;color:var(--text)}
+details.help .dbody p{margin:0 0 8px}
+footer.site{border-top:1px solid var(--border);margin-top:34px;padding-top:16px;color:var(--muted);font-size:13.5px}
+footer.site a{margin-right:16px;display:inline-block}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.errlist{color:var(--bad);font-size:13.5px;margin:6px 0 0;padding-left:20px}
+.warnlist{color:var(--warn);font-size:13.5px;margin:6px 0 0;padding-left:20px}
+code{font:13px var(--mono);background:var(--surface2);padding:1px 4px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap topbar">
+    <span class="logo">b vs c</span>
+    <div>
+      <h1 class="topttl">Eval Significance Calculator</h1>
+      <p class="topsub">Paired testing for LLM eval runs. No key, no upload, no backend.</p>
+    </div>
+    <span class="spacer"></span>
+    <button class="btn small" id="themeBtn" type="button" aria-pressed="false">Light mode</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <p class="lede">Paste two eval runs, or just the counts, and find out whether that 3-point score move is <strong>a real improvement</strong> or <strong>sampling noise</strong>.</p>
+  <p class="sub">Eval runs share the same cases, so the correct test is a paired one on the cases that actually changed. This page runs the exact paired test, shows the effect size at least as prominently as the p-value, measures your harness against its own A/A noise floor, and refuses to print a verdict when the data cannot support one.</p>
+
+  <div class="samplebar">
+    <button class="btn primary" id="loadSample" type="button">Load sample</button>
+    <span class="hint">Or load one at a time:</span>
+    <button class="btn small" id="s1" type="button">1. Headline that is noise</button>
+    <button class="btn small" id="s2" type="button">2. Modest result that is real</button>
+    <button class="btn small" id="s3" type="button">3. A/A run: same config twice</button>
+    <span class="hint"><strong>Load sample</strong> loads 1 with 3 as the floor, which is the whole argument in one click. <span class="tag">Synthetic</span> All samples are made-up numbers. No model, vendor, or benchmark is named or implied.</span>
+  </div>
+
+  <div class="layout">
+
+    <section class="panel" aria-label="Inputs">
+      <h2>Inputs</h2>
+
+      <div class="tabs" role="tablist" aria-label="Input mode">
+        <button class="tab" id="tab-counts" role="tab" aria-selected="true" aria-controls="pane-counts" type="button">Counts</button>
+        <button class="tab" id="tab-files" role="tab" aria-selected="false" aria-controls="pane-files" type="button">Run files</button>
+        <button class="tab" id="tab-scored" role="tab" aria-selected="false" aria-controls="pane-scored" type="button">Scored</button>
+      </div>
+
+      <div class="pbody">
+
+        <div id="pane-counts" role="tabpanel" aria-labelledby="tab-counts">
+          <fieldset>
+            <legend>Paired 2x2 table</legend>
+            <div class="row">
+              <label for="in-n">Total cases (n)</label>
+              <input type="number" id="in-n" min="0" step="1" value="">
+            </div>
+            <div class="grid2">
+              <div class="row">
+                <label for="in-b">b: new passes</label>
+                <input type="number" id="in-b" min="0" step="1" value="">
+                <p class="hint2">Baseline failed, candidate passed.</p>
+              </div>
+              <div class="row">
+                <label for="in-c">c: new failures</label>
+                <input type="number" id="in-c" min="0" step="1" value="">
+                <p class="hint2">Baseline passed, candidate failed.</p>
+              </div>
+            </div>
+            <div class="grid2">
+              <div class="row">
+                <label for="in-a">a: both passed (optional)</label>
+                <input type="number" id="in-a" min="0" step="1" value="">
+              </div>
+              <div class="row">
+                <label for="in-d">d: both failed (optional)</label>
+                <input type="number" id="in-d" min="0" step="1" value="">
+              </div>
+            </div>
+            <p class="hint2"><strong>b</strong> and <strong>c</strong> are exactly the two counts <a href="https://0xelitesystem.github.io/eval-regression-viewer/">eval-regression-viewer</a> already reports as new passes and new failures, so its output pastes straight in. Leave a and d blank if you only have b, c and n: the paired test still runs, but the pass-rate comparison and the score-based interval need all four.</p>
+          </fieldset>
+        </div>
+
+        <div id="pane-files" role="tabpanel" aria-labelledby="tab-files" hidden>
+          <fieldset>
+            <legend>Two run files, pass/fail</legend>
+            <p class="hint2" style="margin-top:0">JSONL, a JSON array, or CSV. Fields are auto-detected; override below if the guess is wrong. Cases are joined on ID, and anything present in only one run is reported rather than silently dropped.</p>
+            <div class="row">
+              <label for="in-fbase">Baseline run</label>
+              <textarea id="in-fbase" spellcheck="false" placeholder="case_id,passed&#10;case-0001,true&#10;case-0002,false"></textarea>
+            </div>
+            <div class="row">
+              <label for="in-fcand">Candidate run</label>
+              <textarea id="in-fcand" spellcheck="false" placeholder="{&quot;case_id&quot;:&quot;case-0001&quot;,&quot;passed&quot;:true}"></textarea>
+            </div>
+            <div class="grid2">
+              <div class="row">
+                <label for="in-fid">Case ID field</label>
+                <select id="in-fid"><option value="">auto</option></select>
+              </div>
+              <div class="row">
+                <label for="in-fout">Outcome field</label>
+                <select id="in-fout"><option value="">auto</option></select>
+              </div>
+            </div>
+            <button class="btn small" id="loadFilesSample" type="button">Load synthetic run files</button>
+          </fieldset>
+        </div>
+
+        <div id="pane-scored" role="tabpanel" aria-labelledby="tab-scored" hidden>
+          <fieldset>
+            <legend>Two run files, numeric score</legend>
+            <p class="hint2" style="margin-top:0">Same file formats. Each matched case gives one paired difference (candidate minus baseline). Works for a 0-5 rubric, latency, similarity, or any numeric metric.</p>
+            <div class="row">
+              <label for="in-sbase">Baseline run</label>
+              <textarea id="in-sbase" spellcheck="false" placeholder="case_id,score&#10;case-0001,3"></textarea>
+            </div>
+            <div class="row">
+              <label for="in-scand">Candidate run</label>
+              <textarea id="in-scand" spellcheck="false" placeholder="case_id,score&#10;case-0001,4"></textarea>
+            </div>
+            <div class="grid2">
+              <div class="row">
+                <label for="in-sid">Case ID field</label>
+                <select id="in-sid"><option value="">auto</option></select>
+              </div>
+              <div class="row">
+                <label for="in-sval">Score field</label>
+                <select id="in-sval"><option value="">auto</option></select>
+              </div>
+            </div>
+            <div class="grid2">
+              <div class="row">
+                <label for="in-boot">Bootstrap iterations</label>
+                <input type="number" id="in-boot" min="100" max="200000" step="100" value="10000">
+              </div>
+              <div class="row">
+                <label for="in-seed">PRNG seed</label>
+                <input type="number" id="in-seed" min="1" step="1" value="20260807">
+              </div>
+            </div>
+            <p class="hint2">The bootstrap is seeded, so a reload gives the exact same interval. Change the seed to see how much it moves: on a coarse rubric the percentile endpoints often land on the same values regardless, which is itself worth knowing.</p>
+            <button class="btn small" id="loadScoredSample" type="button">Load synthetic scored run</button>
+          </fieldset>
+        </div>
+
+        <fieldset>
+          <legend>Settings</legend>
+          <div class="grid3">
+            <div class="row">
+              <label for="in-alpha">Alpha</label>
+              <input type="number" id="in-alpha" min="0.0001" max="0.9999" step="0.005" value="0.05">
+            </div>
+            <div class="row">
+              <label for="in-variants">Variants tried</label>
+              <input type="number" id="in-variants" min="1" step="1" value="1">
+            </div>
+            <div class="row">
+              <label for="in-minb">Refuse below</label>
+              <input type="number" id="in-minb" min="0" step="1" value="10">
+            </div>
+          </div>
+          <p class="hint2"><strong>Variants tried</strong>: how many prompt or config variants you tested before picking this one. Above 1, the uncorrected p-value is optimistically biased and a corrected value is shown next to it. <strong>Refuse below</strong>: the minimum discordant-pair count (b + c) at which this tool will print a verdict at all. Default 10, which is a convention rather than a derived constant; edit it. The exact test is valid at any count, but below roughly this many changed cases it has almost no power, so a verdict in either direction would mislead.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>A/A noise floor (optional)</legend>
+          <p class="hint2" style="margin-top:0">Run the <em>same</em> configuration twice on the same cases and paste those discordant counts here. There is no default and no built-in figure: the floor is always your own measurement of your own harness.</p>
+          <div class="grid3">
+            <div class="row"><label for="in-aan">n</label><input type="number" id="in-aan" min="0" step="1" value=""></div>
+            <div class="row"><label for="in-aab">b</label><input type="number" id="in-aab" min="0" step="1" value=""></div>
+            <div class="row"><label for="in-aac">c</label><input type="number" id="in-aac" min="0" step="1" value=""></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Power planning</legend>
+          <div class="grid2">
+            <div class="row">
+              <label for="in-target">Target effect (pass-rate points)</label>
+              <input type="number" id="in-target" min="0" step="0.1" value="" placeholder="observed">
+            </div>
+            <div class="row">
+              <label for="in-power">Target power</label>
+              <input type="number" id="in-power" min="0.5" max="0.999" step="0.05" value="0.8">
+            </div>
+          </div>
+          <p class="hint2">Leave the target blank to plan for the effect you actually observed.</p>
+        </fieldset>
+
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Results">
+      <h2>Result</h2>
+      <p class="vh" id="live" aria-live="polite"></p>
+      <div class="pbody" id="results">
+        <div class="empty">
+          <h3>Nothing to test yet</h3>
+          <p>Enter the total number of cases plus the two discordant counts, or hit <strong>Load sample</strong> to see the argument in one click.</p>
+          <p>If you already ran <a href="https://0xelitesystem.github.io/eval-regression-viewer/">eval-regression-viewer</a>, its <em>new passes</em> and <em>new failures</em> numbers are the only two inputs this page really needs.</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <h2 class="sec" style="margin-top:30px">Where this fits</h2>
+  <div class="links">
+    <div class="linkcard">
+      <a href="https://0xelitesystem.github.io/eval-regression-viewer/">eval-regression-viewer</a>
+      <p>The upstream tool. It diffs two runs case by case and reports <strong>new failures</strong> and <strong>new passes</strong>: those two counts are exactly the b and c this page needs. That repo answers what changed. This one answers whether it means anything.</p>
+    </div>
+    <div class="linkcard">
+      <a href="https://0xelitesystem.github.io/claude-eval-harness/">claude-eval-harness</a>
+      <p>Actually run the two configurations, bring your own key, and produce the pair of run files you feed in here.</p>
+    </div>
+    <div class="linkcard">
+      <a href="https://0xelitesystem.github.io/prompt-diff/">prompt-diff</a>
+      <p>See exactly what changed between the two prompts you are comparing, before you argue about whether the change did anything.</p>
+    </div>
+    <div class="linkcard">
+      <a href="https://github.com/0xelitesystem/evaluating-llm-output-reference">evaluating-llm-output-reference</a>
+      <p>The conceptual grounding: what to measure and why, before you reach for a test statistic.</p>
+    </div>
+    <div class="linkcard">
+      <a href="https://github.com/0xelitesystem/llm-eval-datasets-starter">llm-eval-datasets-starter</a>
+      <p>Where to get cases in the first place, so your eval set is not twelve hand-picked prompts.</p>
+    </div>
+    <div class="linkcard">
+      <a href="https://github.com/0xelitesystem/rag-evaluation-rubrics">rag-evaluation-rubrics</a>
+      <p>Rubrics for the scored mode, so the numeric score you paste in means something consistent.</p>
+    </div>
+    <div class="linkcard">
+      <a href="https://0xelitesystem.github.io/temperature-top-p-playground/">temperature-top-p-playground</a>
+      <p>The sampling theory behind why two runs of the same configuration disagree at all.</p>
+    </div>
+  </div>
+
+  <section class="dated">
+    <h2>Dated external notes</h2>
+    <p class="stamp">Vendor documentation quoted below was fetched and confirmed on 2026-08-07. It motivates the A/A floor feature; it is not used in any calculation on this page, and nothing here goes stale in a way that could make the arithmetic wrong.</p>
+    <p>An A/A noise floor used to be optional because you could pin sampling to a fixed setting and call the run deterministic. On current models that lever is going away, which makes run-to-run variance something you measure rather than switch off.</p>
+    <blockquote>"Setting <code>temperature</code>, <code>top_p</code>, or <code>top_k</code> to any non-default value on Claude Opus 4.7 or later models, including Claude Opus 5, returns a 400 error."
+      <cite>Anthropic, Claude model migration guide. <a href="https://platform.claude.com/docs/en/about-claude/models/migration-guide" rel="nofollow">platform.claude.com/docs/en/about-claude/models/migration-guide</a></cite></blockquote>
+    <blockquote>"Deprecated parameters: The sampling parameters <code>temperature</code>, <code>top_p</code> and <code>top_k</code> are now deprecated."
+      <cite>Google, Gemini API release notes, entry dated July 21, 2026. That entry names only <code>gemini-3.6-flash</code> and <code>gemini-3.5-flash-lite</code>. <a href="https://ai.google.dev/gemini-api/docs/changelog" rel="nofollow">ai.google.dev/gemini-api/docs/changelog</a></cite></blockquote>
+    <blockquote>"temperature, top_p, and top_k are deprecated and ignored. In future model generations, supplying these parameters returns an HTTP 400 error."
+      <cite>Google, Latest Gemini model guide, sampling parameter deprecation section. <a href="https://ai.google.dev/gemini-api/docs/latest-model#sampling-parameter-deprecation" rel="nofollow">ai.google.dev/gemini-api/docs/latest-model</a></cite></blockquote>
+    <p><strong>What is deliberately not claimed here.</strong> The Anthropic sentence quoted above covers Opus 4.7 and later; it says <em>non-default</em> values, so omitting the field is a different case from sending it. Anthropic's Claude Fable 5 page does not mention sampling parameters at all, so no rule is asserted for it, and no rule is inferred for one model from a sibling model. No claim is made about any vendor other than the two quoted above, and the Google guide quoted last states that it applies to Gemini 3.6 Flash, Gemini 3.5 Flash-Lite and future Gemini releases.</p>
+  </section>
+
+  <footer class="site">
+    <a href="https://elitesystem.ai">An elitesystem.ai tool</a>
+    <a href="https://github.com/0xelitesystem/eval-significance-calculator">Source on GitHub</a>
+    <a href="https://0xelitesystem.github.io/">More tools</a>
+    <p style="margin:10px 0 0">Everything runs in your browser. Nothing you paste leaves the page. This is a calculator, not a statistician: it will happily compute a p-value for a badly designed eval.</p>
+  </footer>
+
+</main>
+
+<script>
+/* =========================================================================
+   PURE CORE
+   Every function below takes input and returns a value or a result object.
+   No document or window access at parse time or call time. Extract and run
+   in Node as-is.
+   ========================================================================= */
+
+/* --- Special functions ------------------------------------------------- */
+
+/* Strict numeric guard. The GLOBAL isFinite() coerces its argument, so
+   isFinite("14") is true and a string would flow into the arithmetic below as
+   a silent concatenation: "14" + 8 === "148". Everything numeric in this file
+   is gated on this instead, so a wrong type refuses rather than returning a
+   plausible wrong answer. */
+function isNum(v) { return typeof v === "number" && isFinite(v); }
+
+/* Lanczos approximation, g = 7, 9 coefficients.
+   Documented relative accuracy is about 1e-10 across the positive reals,
+   which is far tighter than anything else this page depends on. */
+var LANCZOS_G7 = [
+  0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+  771.32342877765313, -176.61502916214059, 12.507343278686905,
+  -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7
+];
+
+function logGamma(x) {
+  if (typeof x !== "number" || !isFinite(x) || x <= 0) return NaN;
+  if (x < 0.5) {
+    var refl = Math.log(Math.PI / Math.sin(Math.PI * x)) - logGamma(1 - x);
+    return isFinite(refl) ? refl : NaN;
+  }
+  var z = x - 1;
+  var acc = LANCZOS_G7[0];
+  for (var i = 1; i < 9; i++) acc += LANCZOS_G7[i] / (z + i);
+  var t = z + 7.5;
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(acc);
+}
+
+function logChoose(n, k) {
+  if (!isNum(n) || !isNum(k) || k < 0 || k > n) return -Infinity;
+  return logGamma(n + 1) - logGamma(k + 1) - logGamma(n - k + 1);
+}
+
+/* Abramowitz and Stegun 7.1.26 rational approximation.
+   Stated maximum absolute error 1.5e-7. */
+function erf(x) {
+  if (typeof x !== "number") return NaN;
+  if (!isFinite(x)) return x > 0 ? 1 : (x < 0 ? -1 : NaN);
+  if (x === 0) return 0;  /* the rational form is off by ~1e-9 here; pin the exact value */
+  var sign = x < 0 ? -1 : 1;
+  var ax = Math.abs(x);
+  var t = 1 / (1 + 0.3275911 * ax);
+  var y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-ax * ax);
+  return sign * y;
+}
+
+function normalCdf(z) {
+  if (typeof z !== "number") return NaN;
+  if (!isFinite(z)) return z > 0 ? 1 : (z < 0 ? 0 : NaN);
+  return 0.5 * (1 + erf(z / Math.SQRT2));
+}
+
+/* Acklam's inverse normal CDF. Stated relative error below 1.15e-9. */
+function normalQuantile(p) {
+  if (!isNum(p) || p <= 0 || p >= 1) return NaN;
+  var a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+           1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
+  var b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+           6.680131188771972e+01, -1.328068155288572e+01];
+  var c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+           -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00];
+  var d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+           3.754408661907416e+00];
+  var pl = 0.02425, ph = 1 - pl, q, r;
+  if (p < pl) {
+    q = Math.sqrt(-2 * Math.log(p));
+    return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+           ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+  if (p > ph) {
+    q = Math.sqrt(-2 * Math.log(1 - p));
+    return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+            ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+  q = p - 0.5; r = q * q;
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q /
+         (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+
+/* Upper tail of chi-square on 1 degree of freedom, via the normal tail. */
+function chiSquareUpperTail1df(x) {
+  if (!isNum(x) || x < 0) return NaN;
+  return 2 * (1 - normalCdf(Math.sqrt(x)));
+}
+
+function logBeta(a, b) { return logGamma(a) + logGamma(b) - logGamma(a + b); }
+
+/* Modified Lentz continued fraction for the incomplete beta. */
+function betaContinuedFraction(a, b, x) {
+  var TINY = 1e-300, EPS = 3e-14, MAXIT = 400;
+  var qab = a + b, qap = a + 1, qam = a - 1;
+  var cc = 1, dd = 1 - qab * x / qap;
+  if (Math.abs(dd) < TINY) dd = TINY;
+  dd = 1 / dd;
+  var h = dd;
+  for (var m = 1; m <= MAXIT; m++) {
+    var m2 = 2 * m;
+    var aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    dd = 1 + aa * dd; if (Math.abs(dd) < TINY) dd = TINY;
+    cc = 1 + aa / cc; if (Math.abs(cc) < TINY) cc = TINY;
+    dd = 1 / dd; h *= dd * cc;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    dd = 1 + aa * dd; if (Math.abs(dd) < TINY) dd = TINY;
+    cc = 1 + aa / cc; if (Math.abs(cc) < TINY) cc = TINY;
+    dd = 1 / dd;
+    var del = dd * cc; h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+
+function regularizedIncompleteBeta(a, b, x) {
+  if (!isNum(a) || !isNum(b) || !isNum(x)) return NaN;
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  var lf = a * Math.log(x) + b * Math.log(1 - x) - logBeta(a, b);
+  if (x < (a + 1) / (a + b + 2)) return Math.exp(lf) * betaContinuedFraction(a, b, x) / a;
+  return 1 - Math.exp(lf) * betaContinuedFraction(b, a, 1 - x) / b;
+}
+
+/* Two-sided p-value for Student t. Numerically exact to the continued
+   fraction tolerance above (relative 3e-14), not a table lookup. */
+function studentTTwoSidedP(t, df) {
+  if (!isNum(t) || !isNum(df) || df <= 0) return NaN;
+  var x = df / (df + t * t);
+  var p = regularizedIncompleteBeta(df / 2, 0.5, x);
+  if (!isNum(p)) return NaN;
+  return Math.min(1, Math.max(0, p));
+}
+
+/* --- Binomial ---------------------------------------------------------- */
+
+var EXACT_SUM_CAP = 2000000;
+
+/* P(X <= k) for X ~ Binomial(n, p), summed in log space so large n
+   does not overflow. */
+function binomialCdf(k, n, p) {
+  if (!isNum(k) || !isNum(n) || !isNum(p)) return NaN;
+  if (n < 0 || p < 0 || p > 1) return NaN;
+  if (k < 0) return 0;
+  if (k >= n) return 1;
+  var lp = Math.log(p), lq = Math.log(1 - p), total = 0;
+  for (var i = 0; i <= k; i++) {
+    var term = Math.exp(logChoose(n, i) + i * lp + (n - i) * lq);
+    if (!isFinite(term)) continue;
+    total += term;
+  }
+  return Math.min(1, Math.max(0, total));
+}
+
+/* --- McNemar ----------------------------------------------------------- */
+
+/* Exact paired test. Under the null, b ~ Binomial(b + c, 0.5).
+   Two-sided p = min(1, 2 * P(X <= min(b, c))).
+   a and d are discarded entirely: that is the point of the paired test. */
+function mcnemarExact(b, c) {
+  var out = { ok: false, p: NaN, m: 0, method: "exact-binomial", note: "" };
+  if (!isNum(b) || !isNum(c) || b < 0 || c < 0) {
+    out.note = "b and c must be finite non-negative numbers.";
+    return out;
+  }
+  var m = b + c;
+  out.m = m;
+  if (m === 0) {
+    out.ok = true; out.p = 1;
+    out.note = "No case changed outcome, so there is nothing to test.";
+    return out;
+  }
+  if (b === c) {
+    out.ok = true; out.p = 1; out.method = "exact-binomial";
+    out.note = "b equals c exactly, so the two-sided exact p-value is 1: the data are as consistent with the null as data can be.";
+    return out;
+  }
+  if (m > EXACT_SUM_CAP) {
+    /* Normal approximation with continuity correction, clearly labelled. */
+    var z = (Math.abs(b - c) - 1) / Math.sqrt(m);
+    out.ok = true;
+    out.p = Math.min(1, 2 * (1 - normalCdf(z)));
+    out.method = "normal-approximation";
+    out.note = "b + c exceeds " + EXACT_SUM_CAP + ", so a continuity-corrected normal approximation was used instead of the exact sum. At counts this large the two agree to well beyond the precision shown.";
+    return out;
+  }
+  var lo = Math.min(b, c);
+  var p = 2 * binomialCdf(lo, m, 0.5);
+  out.ok = true;
+  out.p = Math.min(1, Math.max(0, p));
+  return out;
+}
+
+/* Chi-square approximation with continuity correction, 1 df.
+   Shown only as a labelled comparison. */
+function mcnemarChiSquare(b, c) {
+  var out = { ok: false, stat: NaN, p: NaN, df: 1, reliable: false, note: "" };
+  if (!isNum(b) || !isNum(c) || b < 0 || c < 0) return out;
+  var m = b + c;
+  if (m === 0) {
+    out.note = "Undefined: b + c is zero, so the statistic divides by zero.";
+    return out;
+  }
+  var num = Math.abs(b - c) - 1;
+  if (num < 0) num = 0;
+  var stat = (num * num) / m;
+  if (!isNum(stat)) return out;
+  out.ok = true;
+  out.stat = stat;
+  out.p = chiSquareUpperTail1df(stat);
+  out.reliable = m >= 25;
+  out.note = out.reliable
+    ? "b + c is at least 25, where this approximation is usually close to the exact value."
+    : "b + c is below 25. The approximation is least trustworthy exactly where eval sets live: small totals and few discordant pairs. Read the exact value instead.";
+  return out;
+}
+
+/* --- Intervals --------------------------------------------------------- */
+
+function wilsonInterval(x, n, z) {
+  if (!isNum(x) || !isNum(n) || !isNum(z) || n <= 0) return { lo: NaN, hi: NaN };
+  var z2 = z * z;
+  var denom = n + z2;
+  if (denom === 0) return { lo: NaN, hi: NaN };
+  var center = (x + z2 / 2) / denom;
+  var inner = (x * (n - x)) / n + z2 / 4;
+  if (inner < 0) inner = 0;
+  var half = (z / denom) * Math.sqrt(inner);
+  return { lo: Math.max(0, center - half), hi: Math.min(1, center + half) };
+}
+
+/* Hybrid score interval for the paired difference in proportions:
+   Wilson limits for each rate, combined square-and-add with the observed
+   pairing correlation. Commonly attributed to Newcombe. This is an
+   approximation, not an exact interval. Needs all four cells. */
+function scorePairedDiffInterval(a, b, c, d, alpha) {
+  var out = { ok: false, lo: NaN, hi: NaN, method: "hybrid-score", note: "" };
+  if (!isNum(a) || !isNum(b) || !isNum(c) || !isNum(d)) return out;
+  var n = a + b + c + d;
+  if (!isNum(n) || n <= 0) return out;
+  var z = normalQuantile(1 - alpha / 2);
+  if (!isNum(z) || z <= 0) return out;
+  var p1 = (a + b) / n;   /* candidate pass rate */
+  var p2 = (a + c) / n;   /* baseline pass rate  */
+  var w1 = wilsonInterval(a + b, n, z);
+  var w2 = wilsonInterval(a + c, n, z);
+  if (!isNum(w1.lo) || !isNum(w2.lo)) return out;
+  var A = (a + b) * (c + d) * (a + c) * (b + d);
+  var phi = 0;
+  if (A > 0) {
+    phi = (a * d - b * c) / Math.sqrt(A);
+    if (!isNum(phi)) phi = 0;
+    if (phi > 1) phi = 1;
+    if (phi < -1) phi = -1;
+  }
+  var e1 = p1 - w1.lo, f1 = w1.hi - p1;
+  var e2 = p2 - w2.lo, f2 = w2.hi - p2;
+  var lowRad = e1 * e1 - 2 * phi * e1 * f2 + f2 * f2;
+  var hiRad = f1 * f1 - 2 * phi * f1 * e2 + e2 * e2;
+  if (lowRad < 0) lowRad = 0;
+  if (hiRad < 0) hiRad = 0;
+  var lo = (p1 - p2) - Math.sqrt(lowRad);
+  var hi = (p1 - p2) + Math.sqrt(hiRad);
+  if (!isNum(lo) || !isNum(hi)) return out;
+  out.ok = true;
+  out.lo = Math.max(-1, lo);
+  out.hi = Math.min(1, hi);
+  return out;
+}
+
+/* Wald interval for the paired difference. Used when a and d are unknown,
+   because the score construction needs all four cells. Less accurate. */
+function waldPairedDiffInterval(b, c, n, alpha) {
+  var out = { ok: false, lo: NaN, hi: NaN, method: "wald", note: "" };
+  if (!isNum(b) || !isNum(c) || !isNum(n) || n <= 0) return out;
+  if (!(typeof alpha === "number" && isFinite(alpha) && alpha > 0 && alpha < 1)) return out;
+  var z = normalQuantile(1 - alpha / 2);
+  /* z must be positive, or the interval would come back inverted (lo above hi). */
+  if (!isNum(z) || z <= 0) return out;
+  var diff = (b - c) / n;
+  var varTerm = (b + c) - ((b - c) * (b - c)) / n;
+  if (varTerm < 0) varTerm = 0;
+  var se = Math.sqrt(varTerm) / n;
+  if (!isNum(se)) return out;
+  out.ok = true;
+  out.lo = Math.max(-1, diff - z * se);
+  out.hi = Math.min(1, diff + z * se);
+  out.se = se;
+  return out;
+}
+
+function oddsRatioDiscordant(b, c) {
+  if (!isNum(b) || !isNum(c) || b < 0 || c < 0) {
+    return { ok: false, value: NaN, reason: "b and c must be finite non-negative numbers." };
+  }
+  if (c === 0 && b === 0) {
+    return { ok: false, value: NaN, reason: "Both discordant counts are zero, so the ratio is 0 divided by 0." };
+  }
+  if (c === 0) {
+    return { ok: false, value: NaN, reason: "c is zero, so the discordant odds ratio b/c divides by zero and is not shown. The exact test is still valid: with c = 0 the two-sided exact p reduces to 2 to the power of (1 - b), which is the strongest evidence this sample size can give." };
+  }
+  var v = b / c;
+  if (!isNum(v)) return { ok: false, value: NaN, reason: "Ratio is not finite." };
+  return { ok: true, value: v, reason: "" };
+}
+
+/* The standard WRONG analysis, computed only so it can be shown side by
+   side with the right one. Two independent proportions, pooled z test. */
+function twoProportionZTest(x1, n1, x2, n2) {
+  var out = { ok: false, z: NaN, p: NaN, note: "" };
+  if (!isNum(x1) || !isNum(n1) || !isNum(x2) || !isNum(n2)) return out;
+  if (n1 <= 0 || n2 <= 0) return out;
+  var p1 = x1 / n1, p2 = x2 / n2;
+  var pooled = (x1 + x2) / (n1 + n2);
+  var seSq = pooled * (1 - pooled) * (1 / n1 + 1 / n2);
+  if (!(seSq > 0)) {
+    out.note = "Standard error is zero, so the unpaired statistic is undefined.";
+    return out;
+  }
+  var se = Math.sqrt(seSq);
+  var z = (p1 - p2) / se;
+  if (!isNum(z)) return out;
+  out.ok = true;
+  out.z = z;
+  out.p = Math.min(1, 2 * (1 - normalCdf(Math.abs(z))));
+  return out;
+}
+
+/* Holm-Bonferroni, first step. With only the winner's p-value in hand, the
+   Holm-adjusted value for the smallest of m p-values is min(1, m * p),
+   which coincides with Bonferroni at that step. */
+function holmAdjustedForWinner(p, m) {
+  if (!isNum(p) || !isNum(m) || m < 1) return { ok: false, p: NaN };
+  return { ok: true, p: Math.min(1, m * p) };
+}
+
+/* Required number of cases for McNemar's test, normal approximation.
+   psi   = discordant-pair rate
+   delta = target difference in pass rate
+   n = ( z_{alpha/2} * sqrt(psi) + z_beta * sqrt(psi - delta^2) )^2 / delta^2 */
+function mcnemarRequiredSampleSize(psi, delta, alpha, power) {
+  var out = { ok: false, n: NaN, reason: "" };
+  if (!isNum(psi) || !isNum(delta) || !isNum(alpha) || !isNum(power)) {
+    out.reason = "Inputs must be finite numbers."; return out;
+  }
+  var ad = Math.abs(delta);
+  if (ad <= 0) { out.reason = "A target effect of zero needs an infinite sample: no sample size can detect no difference."; return out; }
+  if (psi <= 0) { out.reason = "The discordance rate is zero, so this formula has nothing to work with. Measure a run where at least some cases change."; return out; }
+  if (psi <= ad * ad) { out.reason = "The target effect is too large relative to the discordance rate you measured (psi must exceed delta squared). Either the target is unrealistic for this harness, or the discordance rate is not representative."; return out; }
+  if (alpha <= 0 || alpha >= 1) { out.reason = "Alpha must be strictly between 0 and 1."; return out; }
+  if (power <= 0 || power >= 1) { out.reason = "Power must be strictly between 0 and 1."; return out; }
+  var za = normalQuantile(1 - alpha / 2);
+  var zb = normalQuantile(power);
+  if (!isNum(za) || !isNum(zb)) { out.reason = "Quantile computation failed."; return out; }
+  var num = za * Math.sqrt(psi) + zb * Math.sqrt(psi - ad * ad);
+  var n = (num * num) / (ad * ad);
+  if (!isNum(n) || n <= 0) { out.reason = "Result is not a finite positive number."; return out; }
+  out.ok = true;
+  out.n = Math.ceil(n);
+  return out;
+}
+
+/* --- Seeded PRNG and bootstrap ----------------------------------------- */
+
+/* xorshift32. Deterministic given the seed, so a shared link reproduces
+   the exact same interval. Adequate for resampling indices; not a
+   cryptographic generator. */
+function createSeededRng(seed) {
+  var s = (seed >>> 0);
+  if (s === 0) s = 0x9e3779b9;
+  return function () {
+    s ^= (s << 13); s >>>= 0;
+    s ^= (s >>> 17);
+    s ^= (s << 5); s >>>= 0;
+    return s / 4294967296;
+  };
+}
+
+var BOOTSTRAP_WORK_CAP = 20000000;
+
+function pairedBootstrapMeanDiff(diffs, iterations, seed, alpha) {
+  var out = { ok: false, mean: NaN, lo: NaN, hi: NaN, iterations: 0, capped: false, samples: null, note: "" };
+  if (!diffs || !diffs.length) { out.note = "No matched pairs to resample."; return out; }
+  var n = diffs.length;
+  var iters = Math.max(100, Math.min(200000, Math.floor(iterations) || 10000));
+  if (n * iters > BOOTSTRAP_WORK_CAP) {
+    iters = Math.max(100, Math.floor(BOOTSTRAP_WORK_CAP / n));
+    out.capped = true;
+    out.note = "Iterations reduced to " + iters + " to keep the page responsive: total resampling work is held near " + BOOTSTRAP_WORK_CAP +
+      " draws. At least 100 iterations always run, so a file large enough to force the floor can still exceed that budget. The percentile interval is correspondingly coarser, and at the 100-iteration floor the endpoints are rough enough that you should read them as an order of magnitude.";
+  }
+  var sum0 = 0, i;
+  for (i = 0; i < n; i++) sum0 += diffs[i];
+  var mean = sum0 / n;
+  if (!isNum(mean)) { out.note = "Mean paired difference is not finite."; return out; }
+  var rng = createSeededRng(seed);
+  var means = new Float64Array(iters);
+  for (var it = 0; it < iters; it++) {
+    var s = 0;
+    for (i = 0; i < n; i++) s += diffs[(rng() * n) | 0];
+    means[it] = s / n;
+  }
+  var sorted = Array.prototype.slice.call(means);
+  sorted.sort(function (x, y) { return x - y; });
+  function pct(q) {
+    var idx = Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))));
+    return sorted[idx];
+  }
+  out.ok = true;
+  out.mean = mean;
+  out.lo = pct(alpha / 2);
+  out.hi = pct(1 - alpha / 2);
+  out.iterations = iters;
+  out.samples = sorted;
+  return out;
+}
+
+function pairedTTest(diffs) {
+  var out = { ok: false, t: NaN, df: 0, p: NaN, mean: NaN, sd: NaN, note: "" };
+  if (!diffs || diffs.length < 2) { out.note = "Need at least 2 matched pairs."; return out; }
+  var n = diffs.length, i, sum = 0;
+  for (i = 0; i < n; i++) sum += diffs[i];
+  var mean = sum / n, ss = 0;
+  for (i = 0; i < n; i++) { var dv = diffs[i] - mean; ss += dv * dv; }
+  var sd = Math.sqrt(ss / (n - 1));
+  if (!isNum(sd)) { out.note = "Standard deviation is not finite."; return out; }
+  if (sd === 0) {
+    out.note = "Every paired difference is identical, so the t statistic divides by zero. If that value is zero the runs agree exactly; if it is not, the shift is perfectly consistent and a t test adds nothing.";
+    out.mean = mean; out.sd = 0; out.df = n - 1;
+    return out;
+  }
+  var se = sd / Math.sqrt(n);
+  var t = mean / se;
+  if (!isNum(t)) { out.note = "t statistic is not finite."; return out; }
+  out.ok = true; out.t = t; out.df = n - 1; out.mean = mean; out.sd = sd;
+  out.p = studentTTwoSidedP(t, n - 1);
+  return out;
+}
+
+/* --- Noise floor ------------------------------------------------------- */
+
+/* The floor is the largest absolute difference still consistent with the
+   user's own A/A run at the same alpha. There is no default value: if the
+   user supplies no A/A counts, there is no floor. */
+function measureNoiseFloor(aa, alpha) {
+  var out = { ok: false, delta: NaN, lo: NaN, hi: NaN, floor: NaN, m: 0, reason: "" };
+  if (!aa) { out.reason = "No A/A counts supplied."; return out; }
+  var n = aa.n, b = aa.b, c = aa.c;
+  if (!isNum(n) || !isNum(b) || !isNum(c) || n <= 0 || b < 0 || c < 0) {
+    out.reason = "A/A counts must be finite, with n above zero."; return out;
+  }
+  if (b + c > n) { out.reason = "A/A discordant counts (" + (b + c) + ") exceed the A/A total cases (" + n + ")."; return out; }
+  var iv = waldPairedDiffInterval(b, c, n, alpha);
+  if (!iv.ok) { out.reason = "Interval computation failed."; return out; }
+  var floor = Math.max(Math.abs(iv.lo), Math.abs(iv.hi));
+  if (!isNum(floor)) { out.reason = "Floor is not finite."; return out; }
+  out.ok = true;
+  out.delta = (b - c) / n;
+  out.lo = iv.lo; out.hi = iv.hi; out.floor = floor; out.m = b + c;
+  return out;
+}
+
+/* --- Validation and the main counts analysis --------------------------- */
+
+function isNonNegInt(v) {
+  return typeof v === "number" && isFinite(v) && v >= 0 && Math.floor(v) === v;
+}
+
+function validateCountsInput(inp) {
+  var errors = [];
+  if (!isNonNegInt(inp.n) || inp.n === 0) errors.push("Total cases (n) must be a whole number above zero.");
+  if (!isNonNegInt(inp.b)) errors.push("b (new passes) must be a whole number of zero or more.");
+  if (!isNonNegInt(inp.c)) errors.push("c (new failures) must be a whole number of zero or more.");
+  var hasA = inp.a !== null && inp.a !== undefined;
+  var hasD = inp.d !== null && inp.d !== undefined;
+  if (hasA !== hasD) errors.push("Give both a and d, or neither. With only one of them the pass rates cannot be reconstructed.");
+  if (hasA && !isNonNegInt(inp.a)) errors.push("a (both passed) must be a whole number of zero or more.");
+  if (hasD && !isNonNegInt(inp.d)) errors.push("d (both failed) must be a whole number of zero or more.");
+  if (!errors.length) {
+    if (hasA && hasD) {
+      var total = inp.a + inp.b + inp.c + inp.d;
+      if (total !== inp.n) {
+        errors.push("a + b + c + d = " + total + " but total cases = " + inp.n + " (off by " + Math.abs(total - inp.n) + "). Fix one of them.");
+      }
+    } else if (inp.b + inp.c > inp.n) {
+      errors.push("b + c = " + (inp.b + inp.c) + " exceeds total cases = " + inp.n + ".");
+    }
+  }
+  if (!(typeof inp.alpha === "number" && isFinite(inp.alpha) && inp.alpha > 0 && inp.alpha < 1)) {
+    errors.push("Alpha must be strictly between 0 and 1 (0.05 is the usual choice).");
+  }
+  if (!(isNonNegInt(inp.variants) && inp.variants >= 1)) errors.push("Variants tried must be a whole number of 1 or more.");
+  if (!isNonNegInt(inp.minDiscordant)) errors.push("The refuse-below threshold must be a whole number of zero or more.");
+  if (!(typeof inp.power === "number" && isFinite(inp.power) && inp.power > 0 && inp.power < 1)) {
+    errors.push("Target power must be strictly between 0 and 1.");
+  }
+  return errors;
+}
+
+function analyzePairedCounts(inp) {
+  var res = {
+    ok: false, errors: [], warnings: [],
+    n: 0, a: null, b: 0, c: 0, d: null, m: 0,
+    haveFullTable: false,
+    diff: NaN, diffCI: null,
+    baselineRate: NaN, candidateRate: NaN,
+    exact: null, chisq: null, odds: null, unpaired: null,
+    multiple: null, floor: null, powerPlan: null,
+    verdict: null, alpha: 0.05
+  };
+  res.errors = validateCountsInput(inp);
+  if (res.errors.length) return res;
+
+  var n = inp.n, b = inp.b, c = inp.c;
+  var hasFull = inp.a !== null && inp.a !== undefined && inp.d !== null && inp.d !== undefined;
+  res.n = n; res.b = b; res.c = c; res.m = b + c;
+  res.alpha = inp.alpha;
+  res.haveFullTable = hasFull;
+  if (hasFull) { res.a = inp.a; res.d = inp.d; }
+
+  res.diff = (b - c) / n;
+  if (hasFull) {
+    res.baselineRate = (inp.a + c) / n;
+    res.candidateRate = (inp.a + b) / n;
+    var sci = scorePairedDiffInterval(inp.a, b, c, inp.d, inp.alpha);
+    res.diffCI = sci.ok ? sci : waldPairedDiffInterval(b, c, n, inp.alpha);
+    if (!sci.ok) res.warnings.push("The score-based interval could not be computed for this table, so a Wald interval is shown instead.");
+  } else {
+    res.diffCI = waldPairedDiffInterval(b, c, n, inp.alpha);
+    res.warnings.push("a and d were not supplied, so the interval shown is the Wald approximation rather than the score-based one, and the pass rates and the unpaired comparison cannot be computed.");
+  }
+
+  res.exact = mcnemarExact(b, c);
+  res.chisq = mcnemarChiSquare(b, c);
+  res.odds = oddsRatioDiscordant(b, c);
+
+  if (hasFull) {
+    res.unpaired = twoProportionZTest(inp.a + b, n, inp.a + c, n);
+  }
+
+  if (inp.variants > 1 && res.exact.ok) {
+    var h = holmAdjustedForWinner(res.exact.p, inp.variants);
+    res.multiple = { variants: inp.variants, uncorrected: res.exact.p, corrected: h.ok ? h.p : NaN };
+  }
+
+  var floor = measureNoiseFloor(inp.aa, inp.alpha);
+  res.floor = floor.ok ? floor : (inp.aa ? floor : null);
+
+  var psi = res.m / n;
+  var targetPoints = (typeof inp.targetEffect === "number" && isFinite(inp.targetEffect) && inp.targetEffect > 0)
+    ? inp.targetEffect / 100
+    : Math.abs(res.diff);
+  var ss = mcnemarRequiredSampleSize(psi, targetPoints, inp.alpha, inp.power);
+  res.powerPlan = {
+    psi: psi, target: targetPoints, alpha: inp.alpha, power: inp.power,
+    usedObserved: !(typeof inp.targetEffect === "number" && isFinite(inp.targetEffect) && inp.targetEffect > 0),
+    result: ss
+  };
+
+  res.verdict = buildVerdict(res, inp);
+  res.ok = true;
+  return res;
+}
+
+function buildVerdict(res, inp) {
+  var v = { kind: "noise", refused: false, headline: "", detail: "" };
+  var b = res.b, c = res.c, m = res.m, n = res.n;
+  var pts = res.diff * 100;
+  var signed = (pts >= 0 ? "+" : "") + pts.toFixed(2);
+
+  if (m === 0) {
+    v.kind = "identical";
+    v.headline = "The two runs agree on every one of the " + n + " cases.";
+    v.detail = "There are no discordant pairs, so there is nothing to test. A paired test works only on the cases that changed.";
+    return v;
+  }
+
+  if (m < inp.minDiscordant) {
+    v.kind = "refused";
+    v.refused = true;
+    v.headline = "Not enough changed cases to call this either way.";
+    v.detail = "Only " + m + " case" + (m === 1 ? "" : "s") + " changed outcome (" + b + " one way, " + c + " the other), below your threshold of " + inp.minDiscordant + ". No verdict is printed, because at this discordance count the test has almost no power and a result in either direction would mislead.";
+    return v;
+  }
+
+  var pExact = res.exact.ok ? res.exact.p : NaN;
+  var significant = isFinite(pExact) && pExact < inp.alpha;
+  var insideFloor = false;
+  if (res.floor && res.floor.ok) {
+    insideFloor = Math.abs(res.diff) <= res.floor.floor;
+  }
+
+  var tail = m + " case" + (m === 1 ? "" : "s") + " changed, " + b + " one way and " + c + " the other";
+
+  if (insideFloor) {
+    v.kind = "floorv";
+    v.headline = "Within your measured noise floor: " + signed + " points, against a floor of " + (res.floor.floor * 100).toFixed(2) + " points.";
+    /* Say what the A/A run actually did. It moved by floor.delta, not by the
+       floor itself; the floor is the widest move its interval still allows.
+       Claiming the A/A run "produced a difference this large" would overstate
+       the user's own measurement. */
+    v.detail = tail + ". Your own A/A run moved " + formatPoints(res.floor.delta) + " points with nothing changed at all, and the interval around that still allows " +
+      (res.floor.floor * 100).toFixed(2) + " points in either direction, which covers the difference measured here. " +
+      (significant
+        ? "The paired test does clear alpha (exact p = " + formatP(pExact) + "), but a harness that moves this much with no change at all is the more likely explanation. Do not ship on this."
+        : "The paired test also fails to clear alpha (exact p = " + formatP(pExact) + ").");
+    return v;
+  }
+
+  if (significant) {
+    v.kind = "signal";
+    v.headline = "This looks real: " + signed + " points, " + tail + ", exact p = " + formatP(pExact) + ".";
+    v.detail = "The paired test clears your alpha of " + inp.alpha + ". Statistical significance and worth shipping are still different questions: read the effect size and its interval before you decide.";
+    return v;
+  }
+
+  v.kind = "noise";
+  v.headline = "This looks like noise: " + tail + ", exact p = " + formatP(pExact) + ".";
+  v.detail = "The paired test does not clear your alpha of " + inp.alpha + ". That means insufficient evidence of a difference, not evidence that the two configurations are the same. See the required sample size below for what it would take to detect an effect this size.";
+  return v;
+}
+
+/* --- Scored mode ------------------------------------------------------- */
+
+function analyzeScoredPairs(inp) {
+  var res = { ok: false, errors: [], warnings: [], n: 0, boot: null, tt: null, mean: NaN, alpha: inp.alpha };
+  if (!(typeof inp.alpha === "number" && isFinite(inp.alpha) && inp.alpha > 0 && inp.alpha < 1)) {
+    res.errors.push("Alpha must be strictly between 0 and 1."); return res;
+  }
+  var diffs = inp.diffs || [];
+  if (diffs.length < 2) { res.errors.push("Need at least 2 matched cases with numeric scores in both runs."); return res; }
+  var i;
+  for (i = 0; i < diffs.length; i++) {
+    if (!isNum(diffs[i])) { res.errors.push("A paired difference was not a finite number at position " + (i + 1) + "."); return res; }
+  }
+  res.n = diffs.length;
+  res.boot = pairedBootstrapMeanDiff(diffs, inp.iterations, inp.seed, inp.alpha);
+  res.tt = pairedTTest(diffs);
+  res.mean = res.boot.ok ? res.boot.mean : NaN;
+  var ties = 0;
+  for (i = 0; i < diffs.length; i++) if (diffs[i] === 0) ties++;
+  res.ties = ties;
+  if (ties === diffs.length) res.warnings.push("Every matched case scored identically in both runs. The mean difference is exactly zero and the interval collapses to a point.");
+  res.ok = true;
+  return res;
+}
+
+/* --- File parsing ------------------------------------------------------ */
+
+function stripBom(text) {
+  if (typeof text !== "string" || !text.length) return text || "";
+  return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+}
+
+var DELIMITER_CANDIDATES = [",", ";", "\t", "|"];
+
+function detectDelimiter(headerLine) {
+  var best = ",", bestCount = -1;
+  for (var i = 0; i < DELIMITER_CANDIDATES.length; i++) {
+    var dch = DELIMITER_CANDIDATES[i], count = 0, inQ = false;
+    for (var j = 0; j < headerLine.length; j++) {
+      var ch = headerLine.charAt(j);
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (!inQ && ch === dch) count++;
+    }
+    if (count > bestCount) { bestCount = count; best = dch; }
+  }
+  return bestCount > 0 ? best : ",";
+}
+
+/* Character-by-character CSV reader. No regular expressions, so there is
+   no backtracking behaviour to worry about on adversarial input. */
+function parseDelimited(text, delim) {
+  var rows = [], field = "", row = [], inQ = false, i = 0;
+  var len = text.length;
+  while (i < len) {
+    var ch = text.charAt(i);
+    if (inQ) {
+      if (ch === '"') {
+        if (i + 1 < len && text.charAt(i + 1) === '"') { field += '"'; i += 2; continue; }
+        inQ = false; i++; continue;
+      }
+      field += ch; i++; continue;
+    }
+    if (ch === '"') { inQ = true; i++; continue; }
+    if (ch === delim) { row.push(field); field = ""; i++; continue; }
+    if (ch === "\r") { i++; continue; }
+    if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+    field += ch; i++;
+  }
+  row.push(field);
+  rows.push(row);
+  /* Drop trailing rows that are entirely empty. */
+  while (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0].trim() === "") rows.pop();
+  return rows;
+}
+
+function parseRunFile(rawText) {
+  var out = { ok: false, format: "", rows: [], fields: [], warnings: [], error: "" };
+  var text = stripBom(rawText || "");
+  var trimmed = text.trim();
+  if (!trimmed) { out.error = "Empty input."; return out; }
+
+  if (trimmed.charAt(0) === "[") {
+    try {
+      var arr = JSON.parse(trimmed);
+      if (!Array.isArray(arr)) { out.error = "Top-level JSON value is not an array."; return out; }
+      out.ok = true; out.format = "json-array"; out.rows = arr;
+      out.fields = collectFieldNames(arr);
+      return out;
+    } catch (e) {
+      out.error = "Looks like a JSON array but failed to parse: " + e.message;
+      return out;
+    }
+  }
+
+  if (trimmed.charAt(0) === "{") {
+    var lines = trimmed.split("\n");
+    var objs = [], badLine = -1;
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i].trim();
+      if (!ln) continue;
+      try { objs.push(JSON.parse(ln)); }
+      catch (e2) { badLine = i + 1; break; }
+    }
+    if (badLine === -1 && objs.length) {
+      out.ok = true; out.format = "jsonl"; out.rows = objs;
+      out.fields = collectFieldNames(objs);
+      return out;
+    }
+    out.error = "Looks like JSONL but line " + badLine + " is not valid JSON.";
+    return out;
+  }
+
+  /* Parse the trimmed text, so leading blank lines cannot be read as the
+     header row. Count the lines that were skipped, so row numbers in the
+     warnings below still refer to the user's actual file. */
+  var lead = 0;
+  while (lead < text.length && text.charCodeAt(lead) <= 32) lead++;
+  var lineOffset = 0;
+  for (var lo2 = 0; lo2 < lead; lo2++) if (text.charAt(lo2) === "\n") lineOffset++;
+  var firstNewline = trimmed.indexOf("\n");
+  var headerLine = firstNewline === -1 ? trimmed : trimmed.slice(0, firstNewline);
+  var delim = detectDelimiter(headerLine);
+  var grid = parseDelimited(trimmed, delim);
+  if (grid.length < 2) { out.error = "CSV needs a header row plus at least one data row."; return out; }
+  var header = grid[0].map(function (h) { return h.trim(); });
+  var seen = Object.create(null);
+  for (var hi = 0; hi < header.length; hi++) {
+    var name = header[hi] || ("column_" + (hi + 1));
+    if (Object.prototype.hasOwnProperty.call(seen, name)) {
+      out.warnings.push("Duplicate column name " + name + " in the header; only the first is used.");
+    }
+    seen[name] = true;
+    header[hi] = name;
+  }
+  var rows = [];
+  for (var r = 1; r < grid.length; r++) {
+    var cells = grid[r];
+    if (cells.length === 1 && cells[0].trim() === "") continue;
+    var obj = Object.create(null);
+    for (var ci = 0; ci < header.length; ci++) {
+      /* First column wins on a duplicated header name, which is what the
+         warning above promises. A blind assignment would silently keep the
+         LAST one and quietly contradict the message. */
+      if (Object.prototype.hasOwnProperty.call(obj, header[ci])) continue;
+      obj[header[ci]] = ci < cells.length ? cells[ci] : "";
+    }
+    rows.push(obj);
+    if (cells.length !== header.length) {
+      out.warnings.push("Row " + (r + 1 + lineOffset) + " has " + cells.length + " cells but the header has " + header.length + ".");
+    }
+  }
+  if (!rows.length) { out.error = "No data rows found after the header."; return out; }
+  out.ok = true;
+  out.format = "csv (delimiter " + (delim === "\t" ? "tab" : delim) + ")";
+  out.rows = rows;
+  out.fields = header.slice();
+  return out;
+}
+
+function collectFieldNames(rows) {
+  var seen = Object.create(null), names = [];
+  for (var i = 0; i < rows.length && i < 500; i++) {
+    var row = rows[i];
+    if (!row || typeof row !== "object") continue;
+    var keys = Object.keys(row);
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      if (!Object.prototype.hasOwnProperty.call(seen, key)) { seen[key] = true; names.push(key); }
+    }
+  }
+  return names;
+}
+
+function normalizeKey(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+var ID_CANDIDATES = ["caseid", "id", "case", "exampleid", "example", "uid", "key", "testid", "sampleid", "qid", "name", "index", "itemid", "prompt"];
+var OUTCOME_CANDIDATES = ["passed", "pass", "outcome", "result", "correct", "success", "status", "ok", "label", "verdict"];
+var SCORE_CANDIDATES = ["score", "value", "rating", "similarity", "metric", "grade", "latencyms", "latency", "points"];
+
+function guessField(fieldNames, candidates) {
+  var byNorm = Object.create(null);
+  for (var i = 0; i < fieldNames.length; i++) {
+    var nk = normalizeKey(fieldNames[i]);
+    if (!Object.prototype.hasOwnProperty.call(byNorm, nk)) byNorm[nk] = fieldNames[i];
+  }
+  for (var c = 0; c < candidates.length; c++) {
+    if (Object.prototype.hasOwnProperty.call(byNorm, candidates[c])) return byNorm[candidates[c]];
+  }
+  return "";
+}
+
+var TRUE_WORDS = ["true", "pass", "passed", "yes", "y", "1", "ok", "correct", "success", "succeeded"];
+var FALSE_WORDS = ["false", "fail", "failed", "no", "n", "0", "error", "incorrect", "failure"];
+
+function coerceOutcome(value) {
+  if (value === true) return { ok: true, value: true };
+  if (value === false) return { ok: true, value: false };
+  if (typeof value === "number") {
+    if (value === 1) return { ok: true, value: true };
+    if (value === 0) return { ok: true, value: false };
+    return { ok: false, value: null };
+  }
+  if (typeof value !== "string") return { ok: false, value: null };
+  var v = value.trim().toLowerCase();
+  if (TRUE_WORDS.indexOf(v) !== -1) return { ok: true, value: true };
+  if (FALSE_WORDS.indexOf(v) !== -1) return { ok: true, value: false };
+  return { ok: false, value: null };
+}
+
+function coerceNumber(value) {
+  if (typeof value === "number") return isFinite(value) ? { ok: true, value: value } : { ok: false, value: NaN };
+  if (typeof value !== "string") return { ok: false, value: NaN };
+  var t = value.trim();
+  if (!t) return { ok: false, value: NaN };
+  var num = Number(t);
+  return isFinite(num) ? { ok: true, value: num } : { ok: false, value: NaN };
+}
+
+function readField(row, field) {
+  if (!row || typeof row !== "object") return undefined;
+  return Object.prototype.hasOwnProperty.call(row, field) ? row[field] : undefined;
+}
+
+/* Join two runs on case ID. Reports unmatched cases in both directions and
+   duplicate IDs rather than silently dropping or double counting them.
+   All lookup maps are null-prototype, so an ID of "constructor" or
+   "__proto__" behaves like any other string. */
+function joinRuns(baselineRows, candidateRows, idField, valueField, coercer) {
+  var out = {
+    ok: false, pairs: [], onlyBaseline: [], onlyCandidate: [],
+    duplicatesBaseline: [], duplicatesCandidate: [],
+    badValues: [], missingId: { baseline: 0, candidate: 0 }, error: ""
+  };
+  if (!idField) { out.error = "No case ID field selected or detected."; return out; }
+  if (!valueField) { out.error = "No outcome or score field selected or detected."; return out; }
+
+  function index(rows, side) {
+    var map = Object.create(null);
+    var order = [];
+    var dupes = [];
+    var missing = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var raw = readField(rows[i], idField);
+      if (raw === undefined || raw === null || String(raw).trim() === "") { missing++; continue; }
+      var key = String(raw).trim();
+      if (Object.prototype.hasOwnProperty.call(map, key)) {
+        if (dupes.indexOf(key) === -1) dupes.push(key);
+        continue; /* first occurrence wins, duplicates are reported not counted */
+      }
+      map[key] = rows[i];
+      order.push(key);
+    }
+    return { map: map, order: order, dupes: dupes, missing: missing, side: side };
+  }
+
+  var bi = index(baselineRows || [], "baseline");
+  var ci = index(candidateRows || [], "candidate");
+  out.duplicatesBaseline = bi.dupes;
+  out.duplicatesCandidate = ci.dupes;
+  out.missingId.baseline = bi.missing;
+  out.missingId.candidate = ci.missing;
+
+  var k, key;
+  for (k = 0; k < bi.order.length; k++) {
+    key = bi.order[k];
+    if (!Object.prototype.hasOwnProperty.call(ci.map, key)) { out.onlyBaseline.push(key); continue; }
+    var bv = coercer(readField(bi.map[key], valueField));
+    var cv = coercer(readField(ci.map[key], valueField));
+    if (!bv.ok || !cv.ok) { out.badValues.push(key); continue; }
+    out.pairs.push({ id: key, baseline: bv.value, candidate: cv.value });
+  }
+  for (k = 0; k < ci.order.length; k++) {
+    key = ci.order[k];
+    if (!Object.prototype.hasOwnProperty.call(bi.map, key)) out.onlyCandidate.push(key);
+  }
+  out.ok = true;
+  return out;
+}
+
+function tableFromOutcomePairs(pairs) {
+  var a = 0, b = 0, c = 0, d = 0;
+  for (var i = 0; i < pairs.length; i++) {
+    var p = pairs[i];
+    if (p.baseline && p.candidate) a++;
+    else if (!p.baseline && p.candidate) b++;
+    else if (p.baseline && !p.candidate) c++;
+    else d++;
+  }
+  return { a: a, b: b, c: c, d: d, n: a + b + c + d };
+}
+
+function diffsFromScorePairs(pairs) {
+  var out = [];
+  for (var i = 0; i < pairs.length; i++) out.push(pairs[i].candidate - pairs[i].baseline);
+  return out;
+}
+
+/* --- Formatting -------------------------------------------------------- */
+
+function formatP(p) {
+  if (typeof p !== "number" || !isFinite(p)) return "n/a";
+  /* An exact p of 1 is a real result (b equals c, or b + c is zero), not a
+     rounded one, so it prints as 1 rather than being folded into the
+     "> 0.9999" bucket, which would understate an exact answer. */
+  if (p >= 1) return "1";
+  if (p < 0.0001) return "< 0.0001";
+  if (p > 0.9999) return "> 0.9999";
+  return String(Number(p.toPrecision(3)));
+}
+
+function formatNum(x, dp) {
+  if (typeof x !== "number" || !isFinite(x)) return "n/a";
+  return x.toFixed(dp === undefined ? 2 : dp);
+}
+
+function formatPoints(x, dp) {
+  if (typeof x !== "number" || !isFinite(x)) return "n/a";
+  var v = x * 100;
+  return (v >= 0 ? "+" : "") + v.toFixed(dp === undefined ? 2 : dp);
+}
+
+function formatRate(x) {
+  if (typeof x !== "number" || !isFinite(x)) return "n/a";
+  return (x * 100).toFixed(1) + "%";
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (ch) {
+    if (ch === "&") return "&amp;";
+    if (ch === "<") return "&lt;";
+    if (ch === ">") return "&gt;";
+    if (ch === '"') return "&quot;";
+    return "&#39;";
+  });
+}
+
+/* --- Markdown summary -------------------------------------------------- */
+
+function buildMarkdownSummary(res, meta) {
+  var L = [];
+  L.push("## Eval significance check");
+  L.push("");
+  if (meta && meta.synthetic) L.push("> SYNTHETIC SAMPLE DATA. Not a real eval result.");
+  if (meta && meta.synthetic) L.push("");
+  L.push("**" + res.verdict.headline + "**");
+  L.push("");
+  L.push("| | |");
+  L.push("|---|---|");
+  L.push("| Cases (n) | " + res.n + " |");
+  L.push("| New passes (b) | " + res.b + " |");
+  L.push("| New failures (c) | " + res.c + " |");
+  L.push("| Discordant pairs (b + c) | " + res.m + " |");
+  if (res.haveFullTable) {
+    L.push("| Baseline pass rate | " + formatRate(res.baselineRate) + " |");
+    L.push("| Candidate pass rate | " + formatRate(res.candidateRate) + " |");
+  }
+  L.push("| Difference in pass rate | " + formatPoints(res.diff) + " points |");
+  if (res.diffCI && res.diffCI.ok) {
+    L.push("| " + Math.round((1 - res.alpha) * 100) + "% interval | " + formatPoints(res.diffCI.lo) + " to " + formatPoints(res.diffCI.hi) + " points (" + res.diffCI.method + ") |");
+  }
+  if (res.exact && res.exact.ok) L.push("| Exact paired p (McNemar, two-sided) | " + formatP(res.exact.p) + " |");
+  if (res.chisq && res.chisq.ok) L.push("| Chi-square approximation p | " + formatP(res.chisq.p) + " (comparison only) |");
+  if (res.odds && res.odds.ok) L.push("| Discordant odds ratio b/c | " + formatNum(res.odds.value, 2) + " |");
+  if (res.unpaired && res.unpaired.ok) L.push("| Unpaired two-proportion p (the wrong test) | " + formatP(res.unpaired.p) + " |");
+  if (res.multiple) L.push("| Holm-corrected p across " + res.multiple.variants + " variants | " + formatP(res.multiple.corrected) + " |");
+  if (res.floor && res.floor.ok) L.push("| Measured A/A noise floor | " + formatNum(res.floor.floor * 100, 2) + " points |");
+  if (res.powerPlan && res.powerPlan.result.ok) L.push("| Cases needed for " + formatNum(res.powerPlan.target * 100, 2) + " points at " + Math.round(res.powerPlan.power * 100) + "% power | " + res.powerPlan.result.n + " |");
+  L.push("");
+  L.push("Assumptions: cases are treated as independent, and as drawn from the distribution you actually care about. The second one is usually the false one. A non-significant result means insufficient evidence, not proof of no difference. Statistical significance and worth shipping are different questions.");
+  L.push("");
+  L.push("Generated by the Eval Significance Calculator, https://0xelitesystem.github.io/eval-significance-calculator/ (runs client-side, nothing uploaded).");
+  return L.join("\n");
+}
+
+function buildScoredMarkdown(sres, joinInfo, meta) {
+  var L = [];
+  L.push("## Eval significance check (scored)");
+  L.push("");
+  if (meta && meta.synthetic) { L.push("> SYNTHETIC SAMPLE DATA. Not a real eval result."); L.push(""); }
+  L.push("| | |");
+  L.push("|---|---|");
+  L.push("| Matched cases | " + sres.n + " |");
+  L.push("| Mean paired difference | " + formatNum(sres.mean, 4) + " |");
+  if (sres.boot && sres.boot.ok) {
+    L.push("| Bootstrap " + Math.round((1 - sres.alpha) * 100) + "% percentile interval | " + formatNum(sres.boot.lo, 4) + " to " + formatNum(sres.boot.hi, 4) + " |");
+    L.push("| Bootstrap iterations / seed | " + sres.boot.iterations + " / " + (meta && meta.seed !== undefined ? meta.seed : "n/a") + " |");
+  }
+  if (sres.tt && sres.tt.ok) {
+    L.push("| Paired t | t = " + formatNum(sres.tt.t, 3) + ", df = " + sres.tt.df + ", p = " + formatP(sres.tt.p) + " |");
+  }
+  L.push("| Cases scoring identically (ties) | " + sres.ties + " |");
+  if (joinInfo) {
+    L.push("| Baseline-only cases | " + joinInfo.onlyBaseline.length + " |");
+    L.push("| Candidate-only cases | " + joinInfo.onlyCandidate.length + " |");
+  }
+  L.push("");
+  L.push("The bootstrap is seeded, so this interval is reproducible. The paired t-statistic assumes the paired differences are roughly normal; on a coarse rubric that assumption is weak, which is why the bootstrap interval is the headline.");
+  L.push("");
+  L.push("Generated by the Eval Significance Calculator, https://0xelitesystem.github.io/eval-significance-calculator/ (runs client-side, nothing uploaded).");
+  return L.join("\n");
+}
+
+/* --- Synthetic sample builders (deterministic) ------------------------- */
+
+function makeSyntheticRunFiles() {
+  /* Produces exactly a=134, b=14, c=8, d=44 over 200 matched cases, plus
+     3 baseline-only cases, 2 candidate-only cases and 1 duplicate ID, so
+     the unmatched and duplicate reporting has something to report. */
+  var baselineRows = [], candidateRows = [];
+  var idx = 0, i;
+  function push(bPass, cPass) {
+    idx++;
+    var id = "case-" + String(idx).padStart(4, "0");
+    baselineRows.push([id, bPass ? "true" : "false"]);
+    candidateRows.push({ case_id: id, passed: cPass });
+  }
+  for (i = 0; i < 134; i++) push(true, true);    /* a */
+  for (i = 0; i < 14; i++) push(false, true);    /* b */
+  for (i = 0; i < 8; i++) push(true, false);     /* c */
+  for (i = 0; i < 44; i++) push(false, false);   /* d */
+
+  var csv = ["case_id,passed,note"];
+  for (i = 0; i < baselineRows.length; i++) {
+    var note = i === 0 ? '"rubric v2, strict mode"' : "";
+    csv.push(baselineRows[i][0] + "," + baselineRows[i][1] + "," + note);
+  }
+  csv.push("case-9001,true,");
+  csv.push("case-9002,false,");
+  csv.push("case-9003,true,");
+
+  var jsonl = [];
+  for (i = 0; i < candidateRows.length; i++) jsonl.push(JSON.stringify(candidateRows[i]));
+  jsonl.push(JSON.stringify({ case_id: "case-0007", passed: true }));  /* duplicate ID */
+  jsonl.push(JSON.stringify({ case_id: "case-8001", passed: true }));
+  jsonl.push(JSON.stringify({ case_id: "case-8002", passed: false }));
+  jsonl.push("");  /* trailing blank line */
+
+  return { baseline: csv.join("\n"), candidate: jsonl.join("\n") };
+}
+
+function makeSyntheticScoredRun() {
+  var rng = createSeededRng(20260807);
+  var base = ["case_id,score"], cand = ["case_id,score"];
+  for (var i = 1; i <= 120; i++) {
+    var id = "case-" + String(i).padStart(4, "0");
+    var b = Math.round(rng() * 5);
+    var roll = rng();
+    var delta = roll < 0.40 ? 1 : (roll < 0.58 ? -1 : 0);
+    var c = Math.max(0, Math.min(5, b + delta));
+    base.push(id + "," + b);
+    cand.push(id + "," + c);
+  }
+  return { baseline: base.join("\n"), candidate: cand.join("\n") };
+}
+
+/* =========================================================================
+   UI LAYER
+   Everything below touches the DOM. Nothing above does.
+   ========================================================================= */
+
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---- theme ---- */
+  var themeBtn = $("themeBtn");
+  function applyThemeLabel() {
+    var cur = document.documentElement.getAttribute("data-theme") || "dark";
+    themeBtn.textContent = cur === "dark" ? "Light mode" : "Dark mode";
+    themeBtn.setAttribute("aria-pressed", cur === "light" ? "true" : "false");
+  }
+  themeBtn.addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+    var next = cur === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    try { window.localStorage.setItem("esc-theme", next); } catch (e) { /* storage blocked */ }
+    applyThemeLabel();
+  });
+  applyThemeLabel();
+
+  /* ---- tabs ---- */
+  var TABS = [
+    { btn: "tab-counts", pane: "pane-counts", mode: "counts" },
+    { btn: "tab-files", pane: "pane-files", mode: "files" },
+    { btn: "tab-scored", pane: "pane-scored", mode: "scored" }
+  ];
+  var mode = "counts";
+  function setMode(next) {
+    mode = next;
+    for (var i = 0; i < TABS.length; i++) {
+      var t = TABS[i];
+      var on = t.mode === next;
+      $(t.btn).setAttribute("aria-selected", on ? "true" : "false");
+      $(t.pane).hidden = !on;
+    }
+    render();
+  }
+  TABS.forEach(function (t) {
+    $(t.btn).addEventListener("click", function () { setMode(t.mode); });
+    $(t.btn).addEventListener("keydown", function (ev) {
+      var i = TABS.findIndex(function (x) { return x.mode === t.mode; });
+      if (ev.key === "ArrowRight") { ev.preventDefault(); var n = TABS[(i + 1) % TABS.length]; $(n.btn).focus(); setMode(n.mode); }
+      if (ev.key === "ArrowLeft") { ev.preventDefault(); var p = TABS[(i - 1 + TABS.length) % TABS.length]; $(p.btn).focus(); setMode(p.mode); }
+    });
+  });
+
+  /* ---- input readers ---- */
+  function numOrNull(el) {
+    var v = el.value.trim();
+    if (v === "") return null;
+    var n = Number(v);
+    return isFinite(n) ? n : NaN;
+  }
+  function numOr(el, fallback) {
+    var v = numOrNull(el);
+    return v === null || !isFinite(v) ? fallback : v;
+  }
+
+  var syntheticFlag = false;
+
+  function readShared() {
+    var aaN = numOrNull($("in-aan")), aaB = numOrNull($("in-aab")), aaC = numOrNull($("in-aac"));
+    var aa = null;
+    if (aaN !== null || aaB !== null || aaC !== null) {
+      aa = { n: aaN === null ? NaN : aaN, b: aaB === null ? NaN : aaB, c: aaC === null ? NaN : aaC };
+    }
+    return {
+      alpha: numOr($("in-alpha"), 0.05),
+      variants: numOr($("in-variants"), 1),
+      minDiscordant: numOr($("in-minb"), 10),
+      power: numOr($("in-power"), 0.8),
+      targetEffect: numOrNull($("in-target")),
+      aa: aa
+    };
+  }
+
+  /* ---- samples ---- */
+  function setCounts(n, a, b, c, d) {
+    $("in-n").value = n;
+    $("in-a").value = a === null ? "" : a;
+    $("in-b").value = b;
+    $("in-c").value = c;
+    $("in-d").value = d === null ? "" : d;
+  }
+  function setAA(n, b, c) {
+    $("in-aan").value = n === null ? "" : n;
+    $("in-aab").value = b === null ? "" : b;
+    $("in-aac").value = c === null ? "" : c;
+  }
+  function sample1(withFloor) {
+    setMode("counts");
+    setCounts(200, 134, 14, 8, 44);
+    setAA(withFloor ? 200 : null, withFloor ? 9 : null, withFloor ? 7 : null);
+    $("in-target").value = "";
+    syntheticFlag = true;
+    render();
+  }
+  function sample2() {
+    setMode("counts");
+    setCounts(200, 138, 18, 4, 40);
+    setAA(200, 9, 7);
+    $("in-target").value = "";
+    syntheticFlag = true;
+    render();
+  }
+  function sample3() {
+    setMode("counts");
+    setCounts(200, null, 9, 7, null);
+    setAA(null, null, null);
+    $("in-target").value = "";
+    syntheticFlag = true;
+    render();
+  }
+  $("loadSample").addEventListener("click", function () { sample1(true); });
+  $("s1").addEventListener("click", function () { sample1(false); });
+  $("s2").addEventListener("click", function () { sample2(); });
+  $("s3").addEventListener("click", function () { sample3(); });
+
+  $("loadFilesSample").addEventListener("click", function () {
+    var s = makeSyntheticRunFiles();
+    $("in-fbase").value = s.baseline;
+    $("in-fcand").value = s.candidate;
+    $("in-fid").value = ""; $("in-fout").value = "";
+    setAA(200, 9, 7);
+    syntheticFlag = true;
+    setMode("files");
+  });
+  $("loadScoredSample").addEventListener("click", function () {
+    var s = makeSyntheticScoredRun();
+    $("in-sbase").value = s.baseline;
+    $("in-scand").value = s.candidate;
+    $("in-sid").value = ""; $("in-sval").value = "";
+    syntheticFlag = true;
+    setMode("scored");
+  });
+
+  /* ---- SVG plots (numbers only, no user strings) ---- */
+  function discordantPlot(b, c) {
+    var W = 340, H = 168, padL = 34, padB = 34, padT = 22, padR = 14;
+    var maxV = Math.max(b, c, 1);
+    var plotH = H - padT - padB;
+    var plotW = W - padL - padR;
+    var bw = Math.min(72, plotW / 3.4);
+    var gap = plotW / 3;
+    var x1 = padL + gap * 0.5 - bw / 2;
+    var x2 = padL + gap * 1.7 - bw / 2;
+    var hb = (b / maxV) * plotH;
+    var hc = (c / maxV) * plotH;
+    var expected = (b + c) / 2;
+    var yExp = padT + plotH - (expected / maxV) * plotH;
+    var s = [];
+    s.push('<svg class="plot" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Discordant pair split: ' + b + ' new passes versus ' + c + ' new failures, with the null expectation of ' + expected.toFixed(1) + ' marked.">');
+    s.push('<line class="axis" x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (W - padR) + '" y2="' + (padT + plotH) + '"/>');
+    s.push('<rect class="bar-b" x="' + x1.toFixed(1) + '" y="' + (padT + plotH - hb).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hb.toFixed(1) + '" rx="3"/>');
+    s.push('<rect class="bar-c" x="' + x2.toFixed(1) + '" y="' + (padT + plotH - hc).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hc.toFixed(1) + '" rx="3"/>');
+    s.push('<line class="nullline" x1="' + padL + '" y1="' + yExp.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yExp.toFixed(1) + '"/>');
+    s.push('<text class="plabel" x="' + (x1 + bw / 2).toFixed(1) + '" y="' + (padT + plotH - hb - 6).toFixed(1) + '" text-anchor="middle">' + b + '</text>');
+    s.push('<text class="plabel" x="' + (x2 + bw / 2).toFixed(1) + '" y="' + (padT + plotH - hc - 6).toFixed(1) + '" text-anchor="middle">' + c + '</text>');
+    s.push('<text class="pmuted" x="' + (x1 + bw / 2).toFixed(1) + '" y="' + (padT + plotH + 15) + '" text-anchor="middle">b: new pass</text>');
+    s.push('<text class="pmuted" x="' + (x2 + bw / 2).toFixed(1) + '" y="' + (padT + plotH + 15) + '" text-anchor="middle">c: new fail</text>');
+    s.push('<text class="pmuted" x="' + (W - padR) + '" y="' + Math.max(12, yExp - 5).toFixed(1) + '" text-anchor="end">null: ' + expected.toFixed(1) + ' each</text>');
+    s.push('</svg>');
+    return s.join("");
+  }
+
+  function bootstrapPlot(samples, lo, hi, mean) {
+    if (!samples || samples.length < 2) return "";
+    var W = 520, H = 190, padL = 30, padR = 16, padT = 16, padB = 30;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    var min = samples[0], max = samples[samples.length - 1];
+    if (!(isNum(min) && isNum(max))) return "";
+    var span = max - min;
+    if (span <= 0) { min -= 0.5; max += 0.5; span = max - min; }
+    var pad = span * 0.05; min -= pad; max += pad; span = max - min;
+    var BINS = 44;
+    var counts = new Array(BINS);
+    for (var i = 0; i < BINS; i++) counts[i] = 0;
+    for (i = 0; i < samples.length; i++) {
+      var bi = Math.floor(((samples[i] - min) / span) * BINS);
+      if (bi < 0) bi = 0; if (bi >= BINS) bi = BINS - 1;
+      counts[bi]++;
+    }
+    var maxC = 1;
+    for (i = 0; i < BINS; i++) if (counts[i] > maxC) maxC = counts[i];
+    function xAt(v) { return padL + ((v - min) / span) * plotW; }
+    var bw = plotW / BINS;
+    var s = [];
+    s.push('<svg class="plot" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Bootstrap distribution of the mean paired difference, with the percentile interval shaded.">');
+    s.push('<rect x="' + xAt(lo).toFixed(1) + '" y="' + padT + '" width="' + Math.max(0, xAt(hi) - xAt(lo)).toFixed(1) + '" height="' + plotH + '" fill="currentColor" opacity="0.07"/>');
+    for (i = 0; i < BINS; i++) {
+      var h = (counts[i] / maxC) * plotH;
+      var x = padL + i * bw;
+      var center = min + ((i + 0.5) / BINS) * span;
+      var cls = (center >= lo && center <= hi) ? "bar-boot-in" : "bar-boot";
+      s.push('<rect class="' + cls + '" x="' + x.toFixed(1) + '" y="' + (padT + plotH - h).toFixed(1) + '" width="' + Math.max(0.6, bw - 0.8).toFixed(2) + '" height="' + h.toFixed(1) + '"/>');
+    }
+    s.push('<line class="axis" x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (W - padR) + '" y2="' + (padT + plotH) + '"/>');
+    if (0 >= min && 0 <= max) {
+      s.push('<line class="zeroline" x1="' + xAt(0).toFixed(1) + '" y1="' + padT + '" x2="' + xAt(0).toFixed(1) + '" y2="' + (padT + plotH) + '"/>');
+      s.push('<text class="pmuted" x="' + xAt(0).toFixed(1) + '" y="' + (padT - 4) + '" text-anchor="middle">0</text>');
+    }
+    s.push('<line class="obsline" x1="' + xAt(mean).toFixed(1) + '" y1="' + padT + '" x2="' + xAt(mean).toFixed(1) + '" y2="' + (padT + plotH) + '"/>');
+    s.push('<text class="pmuted" x="' + padL + '" y="' + (padT + plotH + 18) + '" text-anchor="start">' + Number(lo.toPrecision(3)) + '</text>');
+    s.push('<text class="pmuted" x="' + (W - padR) + '" y="' + (padT + plotH + 18) + '" text-anchor="end">' + Number(hi.toPrecision(3)) + '</text>');
+    s.push('<text class="plabel" x="' + xAt(mean).toFixed(1) + '" y="' + (padT + plotH + 18) + '" text-anchor="middle">' + Number(mean.toPrecision(3)) + '</text>');
+    s.push('</svg>');
+    return s.join("");
+  }
+
+  /* ---- shared result blocks ---- */
+  function assumptionsBlock() {
+    return '<div class="box">' +
+      '<p><strong>Assumptions, stated next to the number rather than buried in a footer.</strong></p>' +
+      '<ul>' +
+      '<li>Cases are treated as <strong>independent</strong>. If your eval set contains near-duplicates, paraphrases of one prompt, or several turns of one conversation, they are not, and every p-value here is too small.</li>' +
+      '<li>Cases are treated as <strong>drawn from the distribution you actually care about</strong>. This is the assumption that is usually false. A hand-picked set of 100 prompts you wrote while debugging is not a sample of production traffic, and no test on this page can fix that.</li>' +
+      '<li>A non-significant result means <strong>insufficient evidence of a difference</strong>. It is not proof that the two configurations are the same.</li>' +
+      '<li><strong>Statistically significant and worth shipping are different questions.</strong> Read the effect size and its interval, then decide whether the smallest effect the interval still allows would be worth the change.</li>' +
+      '<li>This is a calculator, not a statistician. If the decision is expensive, get a real one to look at your design.</li>' +
+      '</ul></div>';
+  }
+
+  function approximationsBlock() {
+    return '<details class="help"><summary>Numerical methods used, and their accuracy limits</summary><div class="dbody">' +
+      '<p>The exact test lives or dies on these, so they are named rather than hidden.</p>' +
+      '<ul>' +
+      '<li><strong>Log-gamma</strong>: <a href="https://en.wikipedia.org/wiki/Lanczos_approximation" rel="nofollow">Lanczos approximation</a>, g = 7 with 9 coefficients. Relative accuracy around 1e-10. Used so the binomial coefficients are summed in log space and do not overflow at large discordant counts.</li>' +
+      '<li><strong>Error function</strong>: Abramowitz and Stegun 7.1.26 rational approximation, stated maximum absolute error 1.5e-7. This bounds the accuracy of the chi-square and unpaired p-values shown here. It does not affect the exact binomial p-value, which is a direct sum. <a href="https://en.wikipedia.org/wiki/Error_function" rel="nofollow">Definition</a>.</li>' +
+      '<li><strong>Inverse normal</strong>: Acklam algorithm, stated relative error below 1.15e-9. Used for the interval and power calculations.</li>' +
+      '<li><strong>Student t tail</strong>: regularized incomplete beta via a modified Lentz continued fraction, relative tolerance 3e-14.</li>' +
+      '<li><strong>Bootstrap PRNG</strong>: <a href="https://en.wikipedia.org/wiki/Xorshift" rel="nofollow">xorshift32</a>, seeded and editable, so the interval is reproducible. Adequate for resampling indices; not a cryptographic generator.</li>' +
+      '<li>Above ' + EXACT_SUM_CAP + ' discordant pairs the exact sum is replaced by a continuity-corrected normal approximation, and the result says so on the page.</li>' +
+      '</ul>' +
+      '<p>Definitions for every test used: <a href="https://en.wikipedia.org/wiki/McNemar%27s_test" rel="nofollow">McNemar test</a>, <a href="https://en.wikipedia.org/wiki/Binomial_test" rel="nofollow">exact binomial test</a>, <a href="https://en.wikipedia.org/wiki/Yates%27s_correction_for_continuity" rel="nofollow">continuity correction</a>, <a href="https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Wilson_score_interval" rel="nofollow">Wilson score interval</a>, <a href="https://en.wikipedia.org/wiki/Odds_ratio" rel="nofollow">odds ratio</a>, <a href="https://en.wikipedia.org/wiki/Z-test" rel="nofollow">two-proportion z test</a> (the unpaired counterexample), <a href="https://en.wikipedia.org/wiki/Holm%E2%80%93Bonferroni_method" rel="nofollow">Holm-Bonferroni</a>, <a href="https://en.wikipedia.org/wiki/Bootstrapping_(statistics)" rel="nofollow">bootstrap</a>, <a href="https://en.wikipedia.org/wiki/Student%27s_t-test#Dependent_t-test_for_paired_samples" rel="nofollow">paired t-test</a>, <a href="https://en.wikipedia.org/wiki/Power_of_a_test" rel="nofollow">statistical power</a>.</p>' +
+      '</div></details>';
+  }
+
+  function pairedLessonBlock() {
+    return '<details class="help"><summary>Why paired, and why the usual move is wrong twice over</summary><div class="dbody">' +
+      '<p>Both runs saw the same cases, so the two pass rates are not independent samples. The standard move is to put a confidence interval on each run\'s pass rate and check whether they overlap. That is invalid twice over.</p>' +
+      '<p><strong>First</strong>, overlapping intervals do not imply a non-significant difference. Two intervals can overlap substantially while the difference between the estimates is comfortably significant. Overlap is not a test.</p>' +
+      '<p><strong>Second</strong>, the unpaired framing throws away the pairing, which is where most of the available power lives. Every case where both runs agree contributes nothing to the question of whether the candidate is better, and the paired test discards them on purpose. Comparing two aggregate rates instead buries the signal in the variance of the cases that never changed.</p>' +
+      '<p>That is why this page reports the exact paired test on b and c, and shows the unpaired comparison only as a labelled counterexample.</p>' +
+      '</div></details>';
+  }
+
+  function copyBlock(id) {
+    return '<div class="copywrap">' +
+      '<button class="btn small copybtn" type="button" data-target="' + id + '">Copy markdown summary</button>' +
+      '<span class="copied" id="' + id + '-msg" hidden>Copied</span></div>' +
+      '<pre class="md" id="' + id + '"></pre>';
+  }
+
+  function attachCopy(container) {
+    var btns = container.querySelectorAll(".copybtn");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener("click", function () {
+        var pre = document.getElementById(this.getAttribute("data-target"));
+        var msg = document.getElementById(this.getAttribute("data-target") + "-msg");
+        var text = pre ? pre.textContent : "";
+        function done() {
+          if (!msg) return;
+          msg.hidden = false;
+          window.setTimeout(function () { msg.hidden = true; }, 1800);
+        }
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+          } else {
+            fallbackCopy(text, done);
+          }
+        } catch (e) { fallbackCopy(text, done); }
+      });
+    }
+  }
+
+  function fallbackCopy(text, done) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "readonly");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      done();
+    } catch (e) { /* clipboard unavailable; the text is selectable in the page */ }
+  }
+
+  /* ---- render: counts result ---- */
+  function renderCountsResult(res, meta) {
+    var H = [];
+    var v = res.verdict;
+
+    H.push('<div class="verdict ' + v.kind + '">');
+    H.push('<p class="kicker">' + (v.refused ? "No verdict" : "Verdict") + (meta.synthetic ? ' &nbsp;<span class="tag">Synthetic</span>' : "") + '</p>');
+    H.push("<h3>" + escapeHtml(v.headline) + "</h3>");
+    H.push("<p>" + escapeHtml(v.detail) + "</p>");
+    if (v.refused && res.powerPlan && res.powerPlan.result.ok) {
+      H.push("<p>To detect a " + formatNum(res.powerPlan.target * 100, 2) + " point difference at alpha " + res.alpha + " and " + Math.round(res.powerPlan.power * 100) + "% power, at the discordance rate you measured, you would need about <strong>" + res.powerPlan.result.n + " cases</strong> instead of " + res.n + ".");
+      H.push("</p>");
+    }
+    H.push("</div>");
+    H.push('<p class="assume-inline">Assumed throughout, not proved by anything above: cases are <strong>independent</strong>, and <strong>drawn from the distribution you actually care about</strong>. The second one is usually the false one. A non-significant result means <strong>insufficient evidence</strong>, not proof that the two configurations are the same, and statistical significance is a different question from whether a change is worth shipping.</p>');
+
+    if (res.warnings.length) {
+      H.push('<ul class="warnlist">');
+      for (var wi = 0; wi < res.warnings.length; wi++) H.push("<li>" + escapeHtml(res.warnings[wi]) + "</li>");
+      H.push("</ul>");
+    }
+
+    /* Effect size first, at least as prominent as the p-value. */
+    H.push('<h4 class="sec">Effect size</h4>');
+    H.push('<div class="stats">');
+    H.push('<div class="stat lead"><p class="k">Difference in pass rate</p><p class="v">' + formatPoints(res.diff) + ' pts</p><p class="n">' + (res.haveFullTable ? escapeHtml(formatRate(res.baselineRate) + " to " + formatRate(res.candidateRate)) : "(b - c) / n") + '</p></div>');
+    if (res.diffCI && res.diffCI.ok) {
+      H.push('<div class="stat lead"><p class="k">' + Math.round((1 - res.alpha) * 100) + '% interval</p><p class="v">' + formatPoints(res.diffCI.lo) + " to " + formatPoints(res.diffCI.hi) + '</p><p class="n">points; ' + (res.diffCI.method === "hybrid-score" ? "hybrid score (square-and-add on Wilson limits, commonly attributed to Newcombe). An approximation." : (res.haveFullTable ? "Wald approximation, used because the score construction could not be evaluated on this table." : "Wald approximation, used because a and d were not supplied.")) + '</p></div>');
+    }
+    H.push('<div class="stat"><p class="k">Discordant split</p><p class="v">' + res.b + " / " + res.c + '</p><p class="n">b new passes, c new failures. ' + res.m + ' of ' + res.n + ' cases changed.</p></div>');
+    if (res.odds.ok) {
+      H.push('<div class="stat"><p class="k">Discordant odds ratio</p><p class="v">' + formatNum(res.odds.value, 2) + '</p><p class="n">b / c. Above 1 favours the candidate.</p></div>');
+    } else {
+      H.push('<div class="stat"><p class="k">Discordant odds ratio</p><p class="v">not shown</p><p class="n">' + escapeHtml(res.odds.reason) + '</p></div>');
+    }
+    H.push("</div>");
+    H.push('<div class="box"><p><strong>Significance and shipping are different questions.</strong> The interval above is the honest read: if its least impressive end would not be worth the change, the p-value does not rescue it.</p></div>');
+
+    H.push('<h4 class="sec">Significance</h4>');
+    H.push('<div class="stats">');
+    H.push('<div class="stat lead"><p class="k">Exact paired p (two-sided)</p><p class="v">' + formatP(res.exact.p) + '</p><p class="n">McNemar via the exact binomial on b + c = ' + res.m + '. ' + (res.exact.method === "normal-approximation" ? "Normal approximation, see note." : "Direct sum, no approximation.") + '</p></div>');
+    if (res.chisq.ok) {
+      H.push('<div class="stat"><p class="k">Chi-square approximation</p><p class="v">' + formatP(res.chisq.p) + '</p><p class="n">stat ' + formatNum(res.chisq.stat, 3) + ' on 1 df, continuity corrected. Comparison only.</p></div>');
+    }
+    H.push("</div>");
+    if (res.exact.note) H.push('<div class="box"><p>' + escapeHtml(res.exact.note) + "</p></div>");
+    if (res.chisq.ok) {
+      H.push('<div class="box' + (res.chisq.reliable ? "" : " flag") + '"><p><strong>On the chi-square column:</strong> ' + escapeHtml(res.chisq.note) + " The exact value is shown first because it is the one that stays valid at eval-set sizes.</p></div>");
+    }
+
+    H.push('<figure>' + discordantPlot(res.b, res.c) + '<figcaption>The discordant pairs are the whole test. Under the null, b and c are each expected to be half of b + c (dashed line). Cases where both runs agree are discarded by design.</figcaption></figure>');
+
+    H.push(pairedLessonBlock());
+
+    if (res.unpaired && res.unpaired.ok) {
+      H.push('<h4 class="sec">Paired versus unpaired, on the same data</h4>');
+      H.push('<div class="scrollx"><table class="t"><thead><tr><th>Analysis</th><th class="num">p-value</th><th>Reads as</th></tr></thead><tbody>');
+      var pairedSig = isFinite(res.exact.p) && res.exact.p < res.alpha;
+      var unpairedSig = isFinite(res.unpaired.p) && res.unpaired.p < res.alpha;
+      H.push("<tr><td><strong>Paired, exact (correct)</strong></td><td class=\"num\">" + formatP(res.exact.p) + "</td><td>" + (pairedSig ? "clears alpha" : "does not clear alpha") + "</td></tr>");
+      H.push("<tr><td>Unpaired two-proportion z (wrong for this data)</td><td class=\"num\">" + formatP(res.unpaired.p) + "</td><td>" + (unpairedSig ? "clears alpha" : "does not clear alpha") + "</td></tr>");
+      H.push("</tbody></table></div>");
+      if (pairedSig && !unpairedSig) {
+        H.push('<div class="box flag"><p><strong>This is the power argument made concrete.</strong> The same ' + res.n + ' cases read as no evidence when you compare the two aggregate rates as if they were independent samples, and as a clear result once you use the pairing you already have. Nothing about the data changed; only the analysis did.</p></div>');
+      } else {
+        H.push('<div class="box"><p>The unpaired row is shown only as a counterexample. It ignores the pairing and is the wrong test for two runs over the same cases, whether or not it happens to agree here.</p></div>');
+      }
+    }
+
+    if (res.floor) {
+      H.push('<h4 class="sec">Your measured A/A noise floor</h4>');
+      if (!res.floor.ok) {
+        H.push('<div class="box flag"><p>' + escapeHtml(res.floor.reason) + "</p></div>");
+      } else {
+        var inside = Math.abs(res.diff) <= res.floor.floor;
+        H.push('<div class="stats">');
+        H.push('<div class="stat' + (inside ? " lead" : "") + '"><p class="k">Floor</p><p class="v">' + formatNum(res.floor.floor * 100, 2) + ' pts</p><p class="n">largest absolute difference still consistent with your A/A run at alpha ' + res.alpha + '</p></div>');
+        H.push('<div class="stat"><p class="k">A/A observed</p><p class="v">' + formatPoints(res.floor.delta) + ' pts</p><p class="n">' + res.floor.m + ' discordant pairs from running the same configuration twice</p></div>');
+        H.push('<div class="stat"><p class="k">A/B observed</p><p class="v">' + formatPoints(res.diff) + ' pts</p><p class="n">' + (inside ? "inside the floor" : "outside the floor") + '</p></div>');
+        H.push("</div>");
+        H.push('<div class="box' + (inside ? " flag" : "") + '"><p><strong>How the floor is computed.</strong> It is the widest absolute difference your A/A interval still allows, that is max of the absolute values of the two interval limits from the same paired construction applied to your A/A counts. One A/A run gives a rough, conservative floor; several give a tighter one. There is no default and no built-in figure here: if you paste nothing, there is no floor.</p>' +
+          '<p><strong>Why this matters more now.</strong> Run-to-run variance used to be something you switched off by pinning sampling parameters. On current models that is increasingly not an option (see the dated notes at the bottom of the page), so it is something you measure instead.</p></div>');
+      }
+    } else {
+      H.push('<h4 class="sec">Your measured A/A noise floor</h4>');
+      H.push('<div class="box"><p>No A/A counts supplied, so no floor is applied. Run the same configuration twice on the same cases, paste those discordant counts into the A/A box, and this tool will refuse to call an A/B delta real when it sits inside the variation your harness produces with no change at all. The floor is always your measurement; nothing is assumed on your behalf.</p></div>');
+    }
+
+    if (res.multiple) {
+      H.push('<h4 class="sec">Multiple comparisons</h4>');
+      H.push('<div class="stats">');
+      H.push('<div class="stat"><p class="k">Uncorrected p</p><p class="v">' + formatP(res.multiple.uncorrected) + '</p><p class="n">optimistically biased</p></div>');
+      H.push('<div class="stat lead"><p class="k">Holm-corrected p</p><p class="v">' + formatP(res.multiple.corrected) + '</p><p class="n">across ' + res.multiple.variants + ' variants tried</p></div>');
+      H.push("</div>");
+      H.push('<div class="box flag"><p>If you swept ' + res.multiple.variants + ' prompt variants and shipped the winner, your p-value is not your p-value. You gave chance ' + res.multiple.variants + ' attempts to hand you a winner, and it took one of them.</p>' +
+        '<p><strong>What the correction actually is.</strong> Holm-Bonferroni\'s first step multiplies the smallest p-value by the number of comparisons, so with only the winner\'s p-value in hand the Holm value equals the Bonferroni one: min(1, ' + res.multiple.variants + ' * p). If you kept all ' + res.multiple.variants + ' p-values, the later Holm steps are less conservative for the runners-up. This tool corrects the winner only, which is the case that actually gets shipped.</p></div>');
+    }
+
+    H.push('<h4 class="sec">Power and required sample size</h4>');
+    var pp = res.powerPlan;
+    if (pp.result.ok) {
+      H.push('<div class="stats">');
+      H.push('<div class="stat lead"><p class="k">Cases needed</p><p class="v">' + pp.result.n + '</p><p class="n">to detect ' + formatNum(pp.target * 100, 2) + ' points at alpha ' + pp.alpha + ' with ' + Math.round(pp.power * 100) + '% power</p></div>');
+      H.push('<div class="stat"><p class="k">You have</p><p class="v">' + res.n + '</p><p class="n">' + (pp.result.n > res.n ? "short by about " + (pp.result.n - res.n) : "already enough for this target") + '</p></div>');
+      H.push('<div class="stat"><p class="k">Discordance rate</p><p class="v">' + formatNum(pp.psi * 100, 1) + '%</p><p class="n">psi = (b + c) / n, measured on this run</p></div>');
+      H.push("</div>");
+    } else {
+      H.push('<div class="box flag"><p>No sample size could be computed. ' + escapeHtml(pp.result.reason) + "</p></div>");
+    }
+    H.push('<div class="box"><p><strong>The formula, printed rather than just the number:</strong></p>' +
+      '<div class="formula">n = ( z[alpha/2] * sqrt(psi) + z[beta] * sqrt(psi - delta^2) )^2 / delta^2\n\n' +
+      '  psi   = discordant-pair rate = (b + c) / n = ' + formatNum(pp.psi, 4) + '\n' +
+      '  delta = target difference in pass rate     = ' + formatNum(pp.target, 4) + (pp.usedObserved ? "  (your observed effect)" : "  (your target)") + '\n' +
+      '  z[alpha/2] = ' + formatNum(normalQuantile(1 - pp.alpha / 2), 4) + '     z[beta] = ' + formatNum(normalQuantile(pp.power), 4) + '</div>' +
+      '<p><strong>What it rests on.</strong> A normal approximation to the exact binomial, and the assumption that the discordance rate psi you just measured carries over to the larger sample. If the extra cases are easier or harder than the ones you have, psi moves and this number is wrong. It also requires psi to exceed delta squared, which is why an unrealistically large target returns nothing instead of a reassuring number. Treat it as an <strong>estimate of the order of magnitude</strong>, not a procurement figure.</p></div>');
+
+    H.push('<h4 class="sec">Assumptions</h4>');
+    H.push(assumptionsBlock());
+    H.push(approximationsBlock());
+
+    H.push('<h4 class="sec">Paste into a PR</h4>');
+    H.push(copyBlock("md-counts"));
+
+    return H.join("");
+  }
+
+  /* ---- render: join report ---- */
+  function joinReport(j, extra) {
+    var H = [];
+    H.push('<h4 class="sec">Join report</h4>');
+    H.push('<div class="scrollx"><table class="t"><tbody>');
+    H.push("<tr><th>Matched cases</th><td class=\"num\">" + j.pairs.length + "</td></tr>");
+    H.push("<tr><th>In baseline only</th><td class=\"num\">" + j.onlyBaseline.length + "</td></tr>");
+    H.push("<tr><th>In candidate only</th><td class=\"num\">" + j.onlyCandidate.length + "</td></tr>");
+    H.push("<tr><th>Duplicate IDs in baseline</th><td class=\"num\">" + j.duplicatesBaseline.length + "</td></tr>");
+    H.push("<tr><th>Duplicate IDs in candidate</th><td class=\"num\">" + j.duplicatesCandidate.length + "</td></tr>");
+    H.push("<tr><th>Rows with a missing ID</th><td class=\"num\">" + (j.missingId.baseline + j.missingId.candidate) + "</td></tr>");
+    H.push("<tr><th>Matched but unusable value</th><td class=\"num\">" + j.badValues.length + "</td></tr>");
+    H.push("</tbody></table></div>");
+    function sampleIds(list) {
+      var shown = list.slice(0, 8).map(function (x) { return escapeHtml(x); }).join(", ");
+      return shown + (list.length > 8 ? ", and " + (list.length - 8) + " more" : "");
+    }
+    var notes = [];
+    if (j.onlyBaseline.length) notes.push("Baseline-only: " + sampleIds(j.onlyBaseline) + ". These are excluded from the test, not treated as failures.");
+    if (j.onlyCandidate.length) notes.push("Candidate-only: " + sampleIds(j.onlyCandidate) + ". Also excluded.");
+    if (j.duplicatesBaseline.length) notes.push("Duplicate IDs in baseline: " + sampleIds(j.duplicatesBaseline) + ". Only the first occurrence of each is used, so nothing is double counted.");
+    if (j.duplicatesCandidate.length) notes.push("Duplicate IDs in candidate: " + sampleIds(j.duplicatesCandidate) + ". Same treatment.");
+    if (j.badValues.length) notes.push("Matched but the value could not be read in one or both runs: " + sampleIds(j.badValues) + ".");
+    if (extra && extra.length) notes = notes.concat(extra);
+    if (notes.length) {
+      H.push('<div class="box flag"><ul>');
+      for (var i = 0; i < notes.length; i++) H.push("<li>" + notes[i] + "</li>");
+      H.push("</ul></div>");
+    } else {
+      H.push('<div class="box"><p>Every case in one run had exactly one match in the other. Nothing was dropped.</p></div>');
+    }
+    return H.join("");
+  }
+
+  /* Rebuild a field dropdown only when the option set actually changed, so a
+     re-render triggered by typing does not steal focus from an open select. */
+  function fieldPickerFill(selectEl, fields) {
+    var signature = fields.join("\u0000");
+    if (selectEl.getAttribute("data-fields") === signature) return;
+    var prev = selectEl.value;
+    var html = ['<option value="">auto</option>'];
+    for (var i = 0; i < fields.length; i++) {
+      html.push('<option value="' + escapeHtml(fields[i]) + '">' + escapeHtml(fields[i]) + "</option>");
+    }
+    selectEl.innerHTML = html.join("");
+    selectEl.setAttribute("data-fields", signature);
+    selectEl.value = fields.indexOf(prev) === -1 ? "" : prev;
+  }
+
+  /* ---- render root ---- */
+  var out = $("results");
+  var live = $("live");
+
+  /* Announce only the headline, not the whole rebuilt panel. A polite live
+     region over the entire result would read the page out on every keystroke. */
+  function announce(text) {
+    if (live) live.textContent = text;
+  }
+
+  function showEmpty(title, body) {
+    out.innerHTML = '<div class="empty"><h3>' + escapeHtml(title) + "</h3><p>" + body + "</p></div>";
+    announce(title);
+  }
+
+  function showErrors(title, errs) {
+    var H = ['<div class="verdict err"><p class="kicker">Cannot compute</p><h3>' + escapeHtml(title) + "</h3><ul class=\"errlist\">"];
+    for (var i = 0; i < errs.length; i++) H.push("<li>" + escapeHtml(errs[i]) + "</li>");
+    H.push("</ul></div>");
+    out.innerHTML = H.join("");
+    announce(title + ". " + errs.join(" "));
+  }
+
+  function render() {
+    try { renderInner(); }
+    catch (err) {
+      showErrors("Something went wrong while computing", [String(err && err.message ? err.message : err)]);
+    }
+  }
+
+  function renderInner() {
+    var shared = readShared();
+
+    if (mode === "counts") {
+      var n = numOrNull($("in-n")), b = numOrNull($("in-b")), c = numOrNull($("in-c"));
+      if (n === null && b === null && c === null) {
+        showEmpty("Nothing to test yet",
+          'Enter the total number of cases plus the two discordant counts, or hit <strong>Load sample</strong> to see the argument in one click.');
+        return;
+      }
+      var inp = {
+        n: n === null ? NaN : n,
+        a: numOrNull($("in-a")),
+        b: b === null ? NaN : b,
+        c: c === null ? NaN : c,
+        d: numOrNull($("in-d")),
+        alpha: shared.alpha, variants: shared.variants,
+        minDiscordant: shared.minDiscordant, power: shared.power,
+        targetEffect: shared.targetEffect, aa: shared.aa
+      };
+      var res = analyzePairedCounts(inp);
+      if (!res.ok) { showErrors("Check these inputs", res.errors); return; }
+      out.innerHTML = renderCountsResult(res, { synthetic: syntheticFlag });
+      var pre = $("md-counts");
+      if (pre) pre.textContent = buildMarkdownSummary(res, { synthetic: syntheticFlag });
+      attachCopy(out);
+      announce(res.verdict.headline);
+      return;
+    }
+
+    if (mode === "files") {
+      renderFilesMode(shared);
+      return;
+    }
+
+    renderScoredMode(shared);
+  }
+
+  function renderFilesMode(shared) {
+    var baseText = $("in-fbase").value, candText = $("in-fcand").value;
+    if (!baseText.trim() && !candText.trim()) {
+      showEmpty("Paste two runs",
+        'JSONL, a JSON array, or CSV. Both runs need a case ID field and a pass/fail field. Hit <strong>Load synthetic run files</strong> in the panel to see the join report, the unmatched-case handling and the duplicate-ID flag in action.');
+      return;
+    }
+    var pb = parseRunFile(baseText), pc = parseRunFile(candText);
+    var errs = [];
+    if (!pb.ok) errs.push("Baseline run: " + pb.error);
+    if (!pc.ok) errs.push("Candidate run: " + pc.error);
+    if (errs.length) { showErrors("Could not read one of the files", errs); return; }
+
+    var allFields = pb.fields.slice();
+    for (var i = 0; i < pc.fields.length; i++) if (allFields.indexOf(pc.fields[i]) === -1) allFields.push(pc.fields[i]);
+    fieldPickerFill($("in-fid"), allFields);
+    fieldPickerFill($("in-fout"), allFields);
+
+    var idField = $("in-fid").value || guessField(allFields, ID_CANDIDATES);
+    var outField = $("in-fout").value || guessField(allFields, OUTCOME_CANDIDATES);
+    if (!idField || !outField) {
+      showErrors("Could not detect the fields", [
+        idField ? "" : "No case ID field found. Pick one from the dropdown.",
+        outField ? "" : "No pass/fail field found. Pick one from the dropdown."
+      ].filter(Boolean));
+      return;
+    }
+
+    var j = joinRuns(pb.rows, pc.rows, idField, outField, coerceOutcome);
+    if (!j.ok) { showErrors("Join failed", [j.error]); return; }
+    if (!j.pairs.length) {
+      showErrors("No usable matched cases", ["The two runs share no case IDs with readable outcomes on both sides. Check the ID field and the outcome field."]);
+      return;
+    }
+
+    var tbl = tableFromOutcomePairs(j.pairs);
+    var inp = {
+      n: tbl.n, a: tbl.a, b: tbl.b, c: tbl.c, d: tbl.d,
+      alpha: shared.alpha, variants: shared.variants,
+      minDiscordant: shared.minDiscordant, power: shared.power,
+      targetEffect: shared.targetEffect, aa: shared.aa
+    };
+    var res = analyzePairedCounts(inp);
+    if (!res.ok) { showErrors("Check these inputs", res.errors); return; }
+
+    var head = '<div class="box"><p>Read <strong>' + escapeHtml(pb.format) + "</strong> for baseline and <strong>" + escapeHtml(pc.format) + "</strong> for candidate. Joined on <code>" + escapeHtml(idField) + "</code>, outcome from <code>" + escapeHtml(outField) + "</code>.</p></div>";
+    var extras = [];
+    for (var w = 0; w < pb.warnings.length; w++) extras.push("Baseline file: " + escapeHtml(pb.warnings[w]));
+    for (w = 0; w < pc.warnings.length; w++) extras.push("Candidate file: " + escapeHtml(pc.warnings[w]));
+
+    out.innerHTML = head + renderCountsResult(res, { synthetic: syntheticFlag }) + joinReport(j, extras);
+    var pre = $("md-counts");
+    if (pre) pre.textContent = buildMarkdownSummary(res, { synthetic: syntheticFlag });
+    attachCopy(out);
+    announce(res.verdict.headline);
+  }
+
+  function renderScoredMode(shared) {
+    var baseText = $("in-sbase").value, candText = $("in-scand").value;
+    if (!baseText.trim() && !candText.trim()) {
+      showEmpty("Paste two scored runs",
+        'Same file formats, but with a numeric score per case: a 0-5 rubric, latency, similarity, anything numeric. Each matched case becomes one paired difference. Hit <strong>Load synthetic scored run</strong> in the panel to see the seeded bootstrap.');
+      return;
+    }
+    var pb = parseRunFile(baseText), pc = parseRunFile(candText);
+    var errs = [];
+    if (!pb.ok) errs.push("Baseline run: " + pb.error);
+    if (!pc.ok) errs.push("Candidate run: " + pc.error);
+    if (errs.length) { showErrors("Could not read one of the files", errs); return; }
+
+    var allFields = pb.fields.slice();
+    for (var i = 0; i < pc.fields.length; i++) if (allFields.indexOf(pc.fields[i]) === -1) allFields.push(pc.fields[i]);
+    fieldPickerFill($("in-sid"), allFields);
+    fieldPickerFill($("in-sval"), allFields);
+
+    var idField = $("in-sid").value || guessField(allFields, ID_CANDIDATES);
+    var valField = $("in-sval").value || guessField(allFields, SCORE_CANDIDATES);
+    if (!idField || !valField) {
+      showErrors("Could not detect the fields", [
+        idField ? "" : "No case ID field found. Pick one from the dropdown.",
+        valField ? "" : "No numeric score field found. Pick one from the dropdown."
+      ].filter(Boolean));
+      return;
+    }
+
+    var j = joinRuns(pb.rows, pc.rows, idField, valField, coerceNumber);
+    if (!j.ok) { showErrors("Join failed", [j.error]); return; }
+    if (j.pairs.length < 2) {
+      showErrors("Not enough matched cases", ["Found " + j.pairs.length + " matched case(s) with a numeric score in both runs. Need at least 2."]);
+      return;
+    }
+
+    var diffs = diffsFromScorePairs(j.pairs);
+    var seed = numOr($("in-seed"), 20260807);
+    var iters = numOr($("in-boot"), 10000);
+    var sres = analyzeScoredPairs({ diffs: diffs, alpha: shared.alpha, iterations: iters, seed: seed });
+    if (!sres.ok) { showErrors("Could not analyze the scores", sres.errors); return; }
+
+    var H = [];
+    H.push('<div class="box"><p>Read <strong>' + escapeHtml(pb.format) + "</strong> for baseline and <strong>" + escapeHtml(pc.format) + "</strong> for candidate. Joined on <code>" + escapeHtml(idField) + "</code>, score from <code>" + escapeHtml(valField) + "</code>.</p></div>");
+
+    var b = sres.boot;
+    var crossesZero = b.ok && b.lo <= 0 && b.hi >= 0;
+    H.push('<div class="verdict ' + (b.ok ? (crossesZero ? "noise" : "signal") : "err") + '">');
+    H.push('<p class="kicker">Verdict' + (syntheticFlag ? ' &nbsp;<span class="tag">Synthetic</span>' : "") + "</p>");
+    if (b.ok) {
+      H.push("<h3>Mean paired difference " + formatNum(b.mean, 3) + ", " + Math.round((1 - sres.alpha) * 100) + "% bootstrap interval " + formatNum(b.lo, 3) + " to " + formatNum(b.hi, 3) + ".</h3>");
+      H.push("<p>" + (crossesZero
+        ? "The interval contains zero, so on " + sres.n + " matched cases this is consistent with no change at all."
+        : "The interval excludes zero on " + sres.n + " matched cases. Whether that size of move is worth shipping is a separate question from whether it is real.") + "</p>");
+    } else {
+      H.push("<h3>Bootstrap could not run.</h3><p>" + escapeHtml(b.note) + "</p>");
+    }
+    H.push("</div>");
+    H.push('<p class="assume-inline">Assumed throughout, not proved by anything above: cases are <strong>independent</strong>, and <strong>drawn from the distribution you actually care about</strong>. The second one is usually the false one. A non-significant result means <strong>insufficient evidence</strong>, not proof that the two configurations are the same, and statistical significance is a different question from whether a change is worth shipping.</p>');
+
+    H.push('<h4 class="sec">Effect size</h4>');
+    H.push('<div class="stats">');
+    H.push('<div class="stat lead"><p class="k">Mean paired difference</p><p class="v">' + formatNum(sres.mean, 4) + '</p><p class="n">candidate minus baseline, per matched case</p></div>');
+    if (b.ok) {
+      H.push('<div class="stat lead"><p class="k">Bootstrap ' + Math.round((1 - sres.alpha) * 100) + '% interval</p><p class="v">' + formatNum(b.lo, 3) + " to " + formatNum(b.hi, 3) + '</p><p class="n">percentile method, ' + b.iterations + ' iterations, seed ' + seed + '</p></div>');
+    }
+    H.push('<div class="stat"><p class="k">Matched cases</p><p class="v">' + sres.n + '</p><p class="n">' + sres.ties + " scored identically in both runs (ties)</p></div>");
+    H.push("</div>");
+
+    if (b.capped) H.push('<div class="box flag"><p>' + escapeHtml(b.note) + "</p></div>");
+
+    if (b.ok && b.samples) {
+      H.push('<figure>' + bootstrapPlot(b.samples, b.lo, b.hi, b.mean) + '<figcaption>Bootstrap distribution of the mean paired difference. Shaded band and the darker bars are the percentile interval; the solid line is the observed mean; the dashed line is zero. Seeded, so this picture is identical on reload.</figcaption></figure>');
+    }
+
+    H.push('<h4 class="sec">Secondary: paired t</h4>');
+    if (sres.tt.ok) {
+      H.push('<div class="box"><p>t = ' + formatNum(sres.tt.t, 3) + ", df = " + sres.tt.df + ", two-sided p = " + formatP(sres.tt.p) + ". Mean " + formatNum(sres.tt.mean, 4) + ", sd " + formatNum(sres.tt.sd, 4) + ".</p>" +
+        "<p><strong>Assumption:</strong> the paired differences are approximately normal. On a coarse ordinal rubric (0 to 5, differences that are almost all -1, 0 or +1) that assumption is weak, which is exactly why the bootstrap interval is the headline and this line is secondary. If the two disagree, trust the bootstrap.</p></div>");
+    } else {
+      H.push('<div class="box flag"><p>' + escapeHtml(sres.tt.note || "Paired t could not be computed.") + "</p></div>");
+    }
+
+    for (var wi = 0; wi < sres.warnings.length; wi++) {
+      H.push('<div class="box flag"><p>' + escapeHtml(sres.warnings[wi]) + "</p></div>");
+    }
+
+    H.push('<h4 class="sec">Assumptions</h4>');
+    H.push(assumptionsBlock());
+    H.push('<div class="box"><p><strong>Scored mode does not do a significance test on pass rates.</strong> There is no b and no c here, so nothing on this screen is a McNemar result. Switch to the counts or run-files tab if what you care about is a binary pass rate.</p></div>');
+    H.push(approximationsBlock());
+
+    var extras = [];
+    for (var w = 0; w < pb.warnings.length; w++) extras.push("Baseline file: " + escapeHtml(pb.warnings[w]));
+    for (w = 0; w < pc.warnings.length; w++) extras.push("Candidate file: " + escapeHtml(pc.warnings[w]));
+    H.push(joinReport(j, extras));
+
+    H.push('<h4 class="sec">Paste into a PR</h4>');
+    H.push(copyBlock("md-scored"));
+
+    out.innerHTML = H.join("");
+    var pre = $("md-scored");
+    if (pre) pre.textContent = buildScoredMarkdown(sres, j, { synthetic: syntheticFlag, seed: seed });
+    attachCopy(out);
+    announce(b.ok
+      ? "Mean paired difference " + formatNum(b.mean, 3) + ", interval " + formatNum(b.lo, 3) + " to " + formatNum(b.hi, 3) + "."
+      : "Bootstrap could not run.");
+  }
+
+  /* ---- wiring ---- */
+  var debounceTimer = 0;
+  function scheduleRender() {
+    window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(render, 200);
+  }
+  var watched = ["in-n", "in-a", "in-b", "in-c", "in-d", "in-alpha", "in-variants", "in-minb",
+    "in-aan", "in-aab", "in-aac", "in-target", "in-power",
+    "in-fbase", "in-fcand", "in-fid", "in-fout",
+    "in-sbase", "in-scand", "in-sid", "in-sval", "in-boot", "in-seed"];
+  watched.forEach(function (id) {
+    var el = $(id);
+    if (!el) return;
+    el.addEventListener("input", function () {
+      if (id === "in-n" || id === "in-a" || id === "in-b" || id === "in-c" || id === "in-d" ||
+          id === "in-fbase" || id === "in-fcand" || id === "in-sbase" || id === "in-scand") {
+        syntheticFlag = false;
+      }
+      scheduleRender();
+    });
+    el.addEventListener("change", scheduleRender);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
