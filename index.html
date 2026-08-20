@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -224,6 +224,37 @@ footer.site a{margin-right:16px;display:inline-block}
 .errlist{color:var(--bad);font-size:13.5px;margin:6px 0 0;padding-left:20px}
 .warnlist{color:var(--warn);font-size:13.5px;margin:6px 0 0;padding-left:20px}
 code{font:13px var(--mono);background:var(--surface2);padding:1px 4px;border-radius:4px}
+</style>
+<style>
+/* elitesystem brand tokens: chrome only, meaning preserved */
+:root, :root[data-theme="dark"] {
+  --accent: #d4ff3a;
+  --accent-ink: #0a0a0a;
+  --bad: #ff6450;
+  --bg: #0a0a0a;
+  --border: #1f1f1d;
+  --good: #7ddc7d;
+  --muted: #6e6e68;
+  --surface: #111110;
+  --surface2: #161614;
+  --text: #e8e8e3;
+  --warn: #ffb454;
+}
+:root[data-theme="light"] {
+  --accent: #2d6b00;
+  --accent-ink: #ffffff;
+  --bad: #b8341a;
+  --bg: #e8ebef;
+  --border: #c8cdd5;
+  --good: #1a5c2e;
+  --muted: #6e6e68;
+  --surface: #dee2e8;
+  --surface2: #d3d7df;
+  --text: #0a0a0a;
+  --warn: #a05a00;
+}
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 </style>
 </head>
 <body>
