@@ -2,11 +2,20 @@
 
 Paste two eval runs, or just the counts, and find out whether that 3-point score move is a real improvement or sampling noise.
 
-## Live demo
-
-https://0xelitesystem.github.io/eval-significance-calculator/
+**Live demo:** https://0xelitesystem.github.io/eval-significance-calculator/
 
 **The thesis: eval runs share the same cases, so the correct test is a paired one.** The standard move is to put a confidence interval on each run's pass rate and check whether they overlap. That is wrong twice over. Overlapping intervals do not imply a non-significant difference, and the unpaired framing throws away the pairing, which is where most of the available power lives. This tool runs the exact paired test on the cases that actually changed, and shows the unpaired comparison only as a labelled counterexample.
+
+## Use
+
+1. Pick an input mode: Counts (total cases plus the two discordant counts), Run files, or Scored files.
+2. Enter your numbers or paste both runs (JSONL, JSON array, or CSV, joined on case ID). Click **Load sample** to see a worked example first.
+3. Optionally paste the discordant counts from an A/A run as your noise floor, and set how many variants you tried.
+4. Read the effect size, its interval, and the exact paired p-value, then copy the markdown summary into your PR.
+
+## Why this exists
+
+Eval scores move a few points between runs, and the usual overlapping-interval check gets the question wrong. This tool runs the exact paired test on the cases that changed so you can tell a real improvement from sampling noise. It is one HTML file with inline CSS and JavaScript: no account, no tracking, no analytics, no external scripts or fonts, and it works offline. MIT licensed, so you can fork it, self-host it, or read every line.
 
 ## Features
 
@@ -82,6 +91,19 @@ Every test this tool runs, with somewhere to read about it.
 ## Privacy
 
 Everything runs in your browser. There is no backend, no analytics, no telemetry, and no network request of any kind: the page loads no fonts, scripts, styles, or images from anywhere else. Run counts, case IDs, scores, and every file you paste stay in the tab and are never transmitted. The only thing written to storage is your light or dark theme preference. Save the file and it works offline, unchanged.
+
+## Run locally
+
+```bash
+git clone https://github.com/0xelitesystem/eval-significance-calculator
+cd eval-significance-calculator
+```
+
+Then open `index.html` in any modern browser. Or serve the folder with `python -m http.server 8000` and visit http://localhost:8000.
+
+## Build
+
+No build step. The whole tool is one `index.html` with no dependencies, so there is nothing to install or compile.
 
 ## License
 
